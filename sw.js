@@ -1,13 +1,14 @@
 // 一度開けば電波がなくても動くように、画面のファイルを端末に取っておく。
 // 画面を直して出すときは V の数字を上げる
-const V = "hanchan-v11";
+const V = "hanchan-v12";
 const FILES = ["./", "index.html", "core.js", "frame.html", "privacy.html", "manifest.webmanifest", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 const CHART = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
 
 self.addEventListener("install", e => {
   e.waitUntil((async () => {
     const c = await caches.open(V);
-    await c.addAll(FILES);
+    // ブラウザの手元の写しは10分残るので、古い画面を新しい版として取り込まないよう必ずネットから取る
+    await c.addAll(FILES.map(u => new Request(u, { cache: "reload" })));
     // 別のサイトの中身は読めない形で返るので add は失敗する。fetch して put する
     try { await c.put(CHART, await fetch(new Request(CHART, { mode: "no-cors" }))); } catch (err) {}
     await self.skipWaiting();
