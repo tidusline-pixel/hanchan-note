@@ -1,5 +1,7 @@
 /* ===== 計算のしくみ（画面と切り離してテストできるようにしてある） ===== */
 const RULE_PRESETS = {
+  m4f:{label:"四麻（25000持ち30000返し・ウマ5-10・同点は起家に近い人が上）", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0, tie:"seat"},
+  m3f:{label:"三麻（35000持ち40000返し・ウマ20・同点は起家に近い人が上）", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:250, fee:0, tie:"seat"},
   m4: {label:"四麻（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:0, fee:0},
   m4b:{label:"四麻（25000持ち25000返し・ウマ5-10）", mode:4, start:25000, ret:25000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0},
   m3: {label:"三麻（35000持ち40000返し・ウマなし）", mode:3, start:35000, ret:40000, uma:[0,0,0], rate:50, chipRate:100, fee:0},
@@ -72,13 +74,59 @@ function parseScore(v){
 }
 
 // フリーの1半荘：自分の点数と着順だけで出す。ゲーム代は負け分と同じく引く。feeTop はトップだけ違う店のため
-function freeResult(score, rank, chips, r){
-  const oka=(r.ret-r.start)*r.mode/1000;
-  const point=round1((score-r.ret)/1000 + (r.uma[rank-1]||0) + (rank===1?oka:0));
+// r.tobi はトビ賞。0点以下で払い、tobiWin（人を飛ばした）でもらう
+function freeResult(score, rank, chips, r, tobiWin){
+  const oka=(r.ret-r.start)*r.mode/1000, tobi=Number(r.tobi||0);
+  const point=round1((score-r.ret)/1000 + (r.uma[rank-1]||0) + (rank===1?oka:0) - (score<=0?tobi:0) + (tobiWin?tobi:0));
   const fee=Number(rank===1 && r.feeTop!==undefined && r.feeTop!=="" ? r.feeTop : r.fee||0);
   const gain=point*r.rate + Number(chips||0)*r.chipRate;
   return {point, fee, total:Math.round(Math.round(gain*1e6)/1e6 - fee)};
 }
+
+// フリーの半荘をまとめる。ラスは半荘ごとのルールの人数で見る
+function freeSummary(games){
+  const x=games.map(g=>freeResult(g.score,g.rank,g.chips,g.rule,g.tobiWin)), n=games.length||1;
+  return {games:games.length, point:round1(x.reduce((a,v)=>a+v.point,0)), total:x.reduce((a,v)=>a+v.total,0),
+    avgRank:games.length?games.reduce((a,g)=>a+g.rank,0)/n:null,
+    top:games.filter(g=>g.rank===1).length/n, lastAvoid:1-games.filter(g=>g.rank===g.rule.mode).length/n};
+}
+// 日ごとにまとめる。新しい日が先
+function freeDays(games){
+  return [...new Set(games.map(g=>g.date))].sort().reverse().map(date=>{const items=games.filter(g=>g.date===date); return {date,items,...freeSummary(items)};});
+}
+// 成績タブの条件のうち、フリーに当てはまるものだけで絞る。場所・面子・手で選んだ回は人の記録なので、フリーは出さない
+function filterFree(games, f){
+  if((f.tags&&f.tags.length)||(f.members&&f.members.length)||(f.pick&&f.pick.length)) return [];
+  return games.filter(g=>(!f.from||g.date>=f.from)&&(!f.to||g.date<=f.to)&&(!f.mode||String(g.rule.mode)===String(f.mode))&&(!(f.rates&&f.rates.length)||f.rates.includes(Number(g.rule.rate))));
+}
+
+// セッションの一覧：セットの会とフリーの日を1本に並べる。保存の形は変えず、見るときだけ混ぜる
+// total は自分の収支。セットで自分が決まっていない、または自分がいない回は null
+function logEntries(d){
+  const me=d.settings&&d.settings.me;
+  const sets=(d.sessions||[]).map(s=>{ const t=sessionTotals(s);
+    return {kind:"set",id:s.id,date:s.date,title:s.title||"",place:(s.tags||[]).join(" "),games:(s.games||[]).length,mode:s.rule.mode,rate:s.rule.rate,total:me&&t[me]?t[me].yen:null}; });
+  const frees=freeDays((d.free&&d.free.games)||[]).map(x=>({kind:"free",id:"free:"+x.date,date:x.date,title:"",place:"",games:x.games,total:x.total}));
+  return [...sets,...frees].sort((a,b)=>b.date.localeCompare(a.date)||a.kind.localeCompare(b.kind));
+}
+function logTotals(es){
+  return {count:es.length, games:es.reduce((a,e)=>a+e.games,0), total:es.reduce((a,e)=>a+(e.total||0),0), unknown:es.filter(e=>e.total===null).length};
+}
+// カレンダー：日ごとの合計と、その日にある種類
+function dayMap(es){
+  const m={};
+  es.forEach(e=>{ const x=m[e.date]||(m[e.date]={total:0,known:false,kinds:[],entries:[]});
+    if(e.total!==null){ x.total+=e.total; x.known=true; }
+    if(!x.kinds.includes(e.kind)) x.kinds.push(e.kind);
+    x.entries.push(e); });
+  return m;
+}
+// 月の格子。日曜始まりで、先頭の空きは null。ym は "2026-10"
+function monthGrid(ym){
+  const [y,mo]=ym.split("-").map(Number), blank=new Date(Date.UTC(y,mo-1,1)).getUTCDay(), last=new Date(Date.UTC(y,mo,0)).getUTCDate();
+  return [...Array(blank).fill(null),...Array.from({length:last},(_,i)=>`${ym}-${String(i+1).padStart(2,"0")}`)];
+}
+function shiftMonth(ym,n){ const [y,mo]=ym.split("-").map(Number), d=new Date(Date.UTC(y,mo-1+n,1)); return d.toISOString().slice(0,7); }
 
 // セッションの集計：ポイント合計・チップ・その他の項目・ゲーム代
 // net＝人の間でやり取りする額（ゲーム代を含まない）、yen＝収支（net−ゲーム代）
@@ -177,4 +225,4 @@ function backupDue(d,now){
   return n>=3 || (n>=1 && !!at && now-at>=3*864e5);
 }
 
-if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue};
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,freeSummary,freeDays,filterFree,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
