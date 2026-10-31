@@ -56,8 +56,32 @@ function extraOf(s,id){
 function extraGap(x){ return Object.values(x.counts||{}).reduce((a,b)=>a+Number(b||0),0); }
 function chipGap(s){ return s.members.reduce((a,id)=>a+Number((s.chips||{})[id]||0),0); }
 
-// セッションの集計：ポイント合計・チップ・その他の項目・場代・円
-// net＝人の間でやり取りする額（場代を含まない）、yen＝収支（net−場代）
+// 手入力の数字を読む。スマホの数字キーに「-」が無いので 5- も ▲5 もマイナスとして読む
+function parseSigned(v){
+  const s=String(v??"").replace(/[０-９．]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[,，\s]/g,"");
+  const m=s.match(/^([-−ー▲△]?)(\d+\.?\d*|\.\d+)([-−ー▲△]?)$/);
+  if(!m) return null;
+  const n=Number(m[2]);
+  return (m[1]||m[3]) && n!==0 ? -n : n;
+}
+// 点数を読む。200以下は千点単位（30→30000、32.5→32500、5-→-5000）、それより大きければそのまま
+function parseScore(v){
+  const n=parseSigned(v);
+  if(n===null) return null;
+  return Math.round(Math.abs(n)<=200 ? n*1000 : n);
+}
+
+// フリーの1半荘：自分の点数と着順だけで出す。ゲーム代は負け分と同じく引く。feeTop はトップだけ違う店のため
+function freeResult(score, rank, chips, r){
+  const oka=(r.ret-r.start)*r.mode/1000;
+  const point=round1((score-r.ret)/1000 + (r.uma[rank-1]||0) + (rank===1?oka:0));
+  const fee=Number(rank===1 && r.feeTop!==undefined && r.feeTop!=="" ? r.feeTop : r.fee||0);
+  const gain=point*r.rate + Number(chips||0)*r.chipRate;
+  return {point, fee, total:Math.round(Math.round(gain*1e6)/1e6 - fee)};
+}
+
+// セッションの集計：ポイント合計・チップ・その他の項目・ゲーム代
+// net＝人の間でやり取りする額（ゲーム代を含まない）、yen＝収支（net−ゲーム代）
 function sessionTotals(s){
   const t = {};
   s.members.forEach(id=>t[id]={point:0, games:0, ranks:[], spans:[], chips:Number((s.chips||{})[id]||0), extra:extraOf(s,id), fee:Number(s.rule.fee||0), net:0, yen:0});
@@ -134,4 +158,23 @@ function makeCode(body){ const b=normalizeCode(body); return `HN-${b.slice(0,4)}
 // バックアップの形を確かめる。読み込みで今の記録を壊さないように
 function isBackup(d){ return !!d && Array.isArray(d.players) && Array.isArray(d.sessions) && d.sessions.every(s=>s && Array.isArray(s.members) && s.rule && Array.isArray(s.games)); }
 
-if(typeof module!=="undefined") module.exports={scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup};
+function gameCount(d){ return (d.sessions||[]).reduce((a,s)=>a+(s.games||[]).length,0)+((d.free&&d.free.games)||[]).length; }
+
+// 端末の中の自動の控え。新しい順に10個まで、1時間に1個まで。見本や空の記録は取らない
+const SNAP_GAP=3600e3, SNAP_KEEP=10;
+function nextSnaps(snaps,d,now,force){
+  if(d.sample || !gameCount(d)) return snaps;
+  const text=JSON.stringify(d), last=snaps[0];
+  if(last && (last.text===text || (!force && now-last.at<SNAP_GAP))) return snaps;
+  return [{at:now,text},...snaps].slice(0,SNAP_KEEP);
+}
+// ファイルに保存していない半荘の数
+function unsavedGames(d){ return Math.max(0,gameCount(d)-Number(d.settings.backupGames||0)); }
+// 保存の声をかけるか：3半荘たまった、または前回の保存から3日たって増えている
+function backupDue(d,now){
+  if(d.sample) return false;
+  const n=unsavedGames(d), at=d.settings.backupAt;
+  return n>=3 || (n>=1 && !!at && now-at>=3*864e5);
+}
+
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue};
