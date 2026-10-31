@@ -127,10 +127,47 @@ function swapPlayer(s,from,to){
   if(!s.members.includes(from)||s.members.includes(to)) return false;
   const rekey=o=>o&&Object.fromEntries(Object.entries(o).map(([k,v])=>[k===from?to:k,v]));
   s.members=s.members.map(id=>id===from?to:id);
-  (s.games||[]).forEach(g=>{ g.scores=rekey(g.scores); if(g.order) g.order=g.order.map(id=>id===from?to:id); if(g.tobiBy===from) g.tobiBy=to; });
+  (s.games||[]).forEach(g=>{ g.scores=rekey(g.scores); if(g.chips) g.chips=rekey(g.chips); if(g.order) g.order=g.order.map(id=>id===from?to:id); if(g.tobiBy===from) g.tobiBy=to; });
   if(s.chips) s.chips=rekey(s.chips);
+  if(s.chipBase) s.chipBase=rekey(s.chipBase);
   (s.extras||[]).forEach(x=>{ if(x.counts) x.counts=rekey(x.counts); });
   return true;
+}
+// 半荘ごとのチップ。合計は s.chips のまま持ち、始める前の枚数は chipBase に残して足す
+function syncGameChips(s){
+  if(!s.chipByGame) return;
+  s.chips=Object.fromEntries(s.members.map(id=>[id,round1((s.games||[]).reduce((a,g)=>a+Number((g.chips||{})[id]||0),Number((s.chipBase||{})[id]||0)))]));
+}
+function startGameChips(s){ s.chipByGame=true; s.chipBase={...(s.chips||{})}; syncGameChips(s); }
+function stopGameChips(s){ syncGameChips(s); delete s.chipByGame; delete s.chipBase; (s.games||[]).forEach(g=>{ delete g.chips; }); }
+// 別の端末の記録を足す。同じ人は名前で見分ける。同じ回は id か中身で見分け、二重に入れない
+// 同じ id の回は半荘が多い方を残す。フリーは端末の持ち主の成績なので opt.free のときだけ足す
+function mergeBackup(d,o,opt={}){
+  const out={sets:0,updated:0,same:0,players:0,free:0,rules:0}, map={}, taken=new Set();
+  const theirs=(o.sessions||[]).filter(s=>!s.sample), used=new Set(theirs.flatMap(s=>s.members));
+  (o.players||[]).filter(p=>used.has(p.id)&&d.players.some(x=>x.id===p.id)).forEach(p=>{ map[p.id]=p.id; taken.add(p.id); });
+  (o.players||[]).filter(p=>used.has(p.id)&&!map[p.id]).forEach(p=>{
+    if(p.guest){ ensureGuest(d,p.id); map[p.id]=p.id; return; }
+    const same=d.players.find(x=>!x.guest&&!x.sample&&!taken.has(x.id)&&x.name===p.name);
+    if(same){ map[p.id]=same.id; taken.add(same.id); return; }
+    const{sample,...copy}=p; d.players.push(copy); map[p.id]=p.id; taken.add(p.id); out.players++;
+  });
+  const to=id=>map[id]||id, rekey=x=>x&&Object.fromEntries(Object.entries(x).map(([k,v])=>[to(k),v]));
+  const mapped=x=>{ const s=JSON.parse(JSON.stringify(x));
+    s.members=s.members.map(to); s.chips=rekey(s.chips)||{}; if(s.chipBase) s.chipBase=rekey(s.chipBase);
+    s.games.forEach(g=>{ g.scores=rekey(g.scores); if(g.chips) g.chips=rekey(g.chips); if(g.order) g.order=g.order.map(to); if(g.tobiBy) g.tobiBy=to(g.tobiBy); });
+    (s.extras||[]).forEach(e=>{ e.counts=rekey(e.counts)||{}; });
+    return s; };
+  const key=s=>`${s.date}|${s.members.slice().sort()}|${s.games.map(g=>JSON.stringify(Object.entries(g.scores).sort()))}`;
+  const seen=new Set(d.sessions.map(key));
+  theirs.forEach(x=>{ const s=mapped(x), i=d.sessions.findIndex(y=>y.id===s.id);
+    if(i>=0){ if(s.games.length>d.sessions[i].games.length){ d.sessions[i]=s; out.updated++; } else out.same++; return; }
+    if(seen.has(key(s))){ out.same++; return; }
+    d.sessions.push(s); seen.add(key(s)); out.sets++; });
+  if(opt.free&&o.free&&d.free) (o.free.games||[]).forEach(g=>{ if(!d.free.games.some(x=>x.id===g.id)){ d.free.games.push(JSON.parse(JSON.stringify(g))); out.free++; } });
+  d.rules=d.rules||[];
+  (o.rules||[]).forEach(r=>{ if(!d.rules.some(x=>x.name===r.name)){ d.rules.push(JSON.parse(JSON.stringify(r))); out.rules++; } });
+  return out;
 }
 // ゲストや二重に作った人の記録を全部まとめる。同じ回に2人ともいる回は動かせないので残し、その数を返す
 function mergePlayer(d,from,to){
@@ -279,6 +316,15 @@ function sessionTotals(s){
   return t;
 }
 
+// LINE などへ貼る精算の文。name は id から名前を返す関数
+function settleText(s,name){
+  const t=sessionTotals(s), [,m,d]=s.date.split("-").map(Number), p=v=>v.toLocaleString("ja-JP")+"P";
+  const lines=[`${m}/${d} 半荘ノート`,...s.members.slice().sort((a,b)=>t[b].yen-t[a].yen).map(id=>`${name(id)} ${t[id].yen===0?"±0P":(t[id].yen>0?"+":"−")+p(Math.abs(t[id].yen))}`)];
+  lines.push(...settle(Object.fromEntries(s.members.map(id=>[id,t[id].net]))).map(x=>`${name(x.from)} → ${name(x.to)} ${p(x.yen)}`));
+  if(s.members.some(id=>t[id].fee)) lines.push("※場代は収支から引いてあり、やり取りには入れていません");
+  return lines.join("\n");
+}
+
 // 精算：払う回数が少なくなるように、一番負けた人から一番勝った人へ順に払う
 function settle(yenById){
   const pos = Object.entries(yenById).filter(([,v])=>v>0).map(([id,v])=>({id,v})).sort((a,b)=>b.v-a.v);
@@ -382,4 +428,4 @@ function backupDue(d){
   return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={rankDist,outOf,nextOut,TRIAL_DAYS,canTrial,startTrial,swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={mergeBackup,syncGameChips,startGameChips,stopGameChips,settleText,rankDist,outOf,nextOut,TRIAL_DAYS,canTrial,startTrial,swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};

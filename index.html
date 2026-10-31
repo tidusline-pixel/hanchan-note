@@ -351,6 +351,39 @@ function freeStatsCard(){
   return `<section class="card"><h2>フリーの成績</h2><div class="tablebox"><table><thead><tr><th>種類</th><th>収支</th><th>ポイント</th><th>半荘</th><th>平均着順</th><th>トップ率</th><th>ラス回避</th></tr></thead><tbody>${row(4)}${row(3)}</tbody></table></div>
     <h3>着順の回数</h3><div class="tablebox"><table id="fRanks"><thead><tr><th>種類</th><th>1着</th><th>2着</th><th>3着</th><th>4着</th></tr></thead><tbody>${rankRow(4)}${rankRow(3)}</tbody></table></div></section>`;
 }
+// 成績を1枚の画像にする。画面の色の設定によらず明るい紙の色で描く
+function summaryCanvas(sel){
+  const W=1080, pad=56, rowH=62, st=playerStats(sel,4), ids=Object.keys(st).sort((a,b)=>st[b].yen-st[a].yen);
+  const modes=statModes(sel).map(m=>{const x=playerStats(sel.filter(s=>s.rule.mode===m),m); return {m,x,ids:Object.keys(x).filter(id=>x[id].games).sort((a,b)=>x[a].avgRank-x[b].avgRank)};});
+  const dates=[...new Set(sel.map(s=>s.date))].sort(), hasChart=dates.length>1, chartH=hasChart?440:0;
+  const c=document.createElement("canvas"); c.width=W;
+  c.height=190+rowH*(ids.length+1)+chartH+modes.reduce((a,x)=>a+100+rowH*(x.ids.length+1),0)+90;
+  const g=c.getContext("2d"), FG="#26302a", MUTE="#6c776f", LINE="#dde2d6", PLUS="#2f6fb0", MINUS="#c0443b";
+  g.fillStyle="#fbfbf7"; g.fillRect(0,0,W,c.height); g.textBaseline="middle";
+  const text=(s,x,y,px,o={})=>{ g.font=`${o.bold?"bold ":""}${px}px Meiryo,"メイリオ","Hiragino Sans",sans-serif`; g.fillStyle=o.color||FG; g.textAlign=o.align||"left";
+    let t=String(s); if(o.max&&g.measureText(t).width>o.max){ while(t.length>1&&g.measureText(t+"…").width>o.max) t=t.slice(0,-1); t+="…"; } g.fillText(t,x,y); };
+  const yenColor=v=>v>0?PLUS:v<0?MINUS:FG, rule=y=>{ g.strokeStyle=LINE; g.lineWidth=2; g.beginPath(); g.moveTo(pad,y); g.lineTo(W-pad,y); g.stroke(); };
+  const table=(y,cols,rows)=>{ cols.forEach(k=>text(k.t,k.x,y+rowH/2,26,{color:MUTE,align:k.a})); rule(y+rowH);
+    rows.forEach((r,i)=>{ const yy=y+rowH*(i+1); r.forEach((v,j)=>{ const k=cols[j]; text(v.t??v,k.x,yy+rowH/2,30,{align:k.a,color:v.c,bold:v.b,max:k.max}); }); rule(yy+rowH); });
+    return y+rowH*(rows.length+1); };
+  text("成績まとめ",pad,82,56,{bold:true});
+  const span=dates[0]===dates[dates.length-1]?dates[0]:`${dates[0]} 〜 ${dates[dates.length-1]}`;
+  text(`${span}　${sel.length}回 ${sel.reduce((a,s)=>a+s.games.length,0)}半荘`,pad,146,30,{color:MUTE});
+  let y=table(190,[{t:"名前",x:pad,max:400},{t:"収支",x:760,a:"right"},{t:"ポイント",x:920,a:"right"},{t:"半荘",x:W-pad,a:"right"}],
+    ids.map(id=>[{t:P(id).name,b:true,c:P(id).color},{t:fmtP(st[id].yen),c:yenColor(st[id].yen),b:true},{t:fmtPt(st[id].point),c:yenColor(st[id].point)},st[id].games]));
+  if(hasChart){ const top=y+120, bot=y+chartH-40, L=pad+10, R=W-pad-10;
+    const series=ids.map(id=>{ let v=0; return {id,pts:dates.map(d=>{ st[id].hist.filter(h=>h.date===d).forEach(h=>{v=h.yen;}); return v; })}; });
+    const all=[0,...series.flatMap(x=>x.pts)], hi=Math.max(...all), lo=Math.min(...all), Y=v=>hi===lo?(top+bot)/2:bot-(v-lo)/(hi-lo)*(bot-top), X=i=>L+i*(R-L)/(dates.length-1);
+    text("収支の動き",pad,y+56,30,{bold:true}); text(fmtP(hi),R,top-28,24,{color:MUTE,align:"right"}); text(fmtP(lo),R,bot+16,24,{color:MUTE,align:"right"});
+    g.strokeStyle=MUTE; g.lineWidth=2; g.beginPath(); g.moveTo(L,Y(0)); g.lineTo(R,Y(0)); g.stroke();
+    series.forEach(x=>{ g.strokeStyle=P(x.id).color; g.lineWidth=5; g.lineJoin="round"; g.beginPath(); x.pts.forEach((v,i)=>i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v))); g.stroke(); });
+    y+=chartH; }
+  modes.forEach(({m,x,ids:mi})=>{ text(`着順（${modeName(m)}）`,pad,y+60,30,{bold:true});
+    y=table(y+100,[{t:"名前",x:pad,max:400},{t:"半荘",x:560,a:"right"},{t:"平均",x:700,a:"right"},{t:"トップ",x:860,a:"right"},{t:"ラス回避",x:W-pad,a:"right"}],
+      mi.map(id=>[{t:P(id).name,c:P(id).color,b:true},x[id].games,x[id].avgRank.toFixed(2),pct(x[id].top),pct(x[id].lastAvoid)])); });
+  text("半荘ノート",W-pad,c.height-44,26,{color:MUTE,align:"right"});
+  return c;
+}
 function viewStats(){
   const sel=statSel();
   const n = filter.mode? Number(filter.mode) : (sel.every(s=>s.rule.mode===3)&&sel.length?3:4);
@@ -389,6 +422,8 @@ function viewStats(){
       <tbody>${ids.map(id=>{const p=st[id];return `<tr><td><span class="dot" style="background:${P(id).color}"></span>${esc(P(id).name)}</td><td class="${cls(p.yen)}">${fmtP(p.yen)}</td><td class="${cls(p.point)}">${fmtPt(p.point)}</td><td>${p.games}</td></tr>`}).join("")}</tbody>
     </table></div>
     <p class="note">収支＝ポイント×千点あたり＋チップ×1枚あたり＋その他の項目−場代。同点はウマ・オカを分けず、記録のときに選んだ人を上にします（分け合う形を選んだセットを除く）。</p>
+    <button class="small" id="sumImg">1枚の画像にまとめる${unlocked()?"":'<span class="lock">拡張</span>'}</button>
+    <div class="stack" id="sumBox" hidden><img id="sumPrev" alt="成績をまとめた画像" style="width:100%;border:1px solid var(--line);border-radius:10px"><button class="small primary" id="sumSave">画像を保存・共有</button></div>
   </section>
   <section class="card"><h2>収支の動き</h2><div class="chartbox"><canvas id="c1" aria-label="収支の推移"></canvas></div></section>
   ${statModes(sel).map(m=>{const ms=playerStats(sel.filter(s=>s.rule.mode===m),m), mi=Object.keys(ms).sort((a,b)=>ms[a].avgRank-ms[b].avgRank), mn=modeName(m);
@@ -418,6 +453,11 @@ function bindStats(){
     if(!unlocked()){document.getElementById("saveLock").hidden=false;return;}
     document.getElementById("saveBox").hidden=false;document.getElementById("saveName").focus();};
   document.getElementById("toSettings").onclick=()=>{tab="settings";render();};
+  const sumI=document.getElementById("sumImg"); let sumC=null;
+  if(sumI) sumI.onclick=()=>{ if(!unlocked()){toast("成績の1枚まとめは拡張機能です");return;}
+    sumC=summaryCanvas(statSel()); document.getElementById("sumPrev").src=sumC.toDataURL("image/png"); document.getElementById("sumBox").hidden=false; };
+  const sumS=document.getElementById("sumSave");
+  if(sumS) sumS.onclick=()=>sumC&&sumC.toBlob(async b=>{ if(await saveFile(`hanchan-note-seiseki-${stamp()}.png`,b)==="done") toast("保存しました"); },"image/png");
   document.getElementById("saveOk").onclick=()=>{const name=document.getElementById("saveName").value.trim()||"保存した条件";db.saved.push({name,filter:JSON.parse(JSON.stringify(filter))});save();render();};
   document.querySelectorAll("[data-load]").forEach(b=>b.onclick=()=>{filter=JSON.parse(JSON.stringify(db.saved[b.dataset.load].filter));render();});
   if(typeof Chart==="undefined" || !document.getElementById("c1")) return;
@@ -561,6 +601,7 @@ function swapHTML(s){
   return `<h3>メンバーを置き換える</h3><div class="grid2"><label class="f">この人を<select id="swFrom">${s.members.map(id=>`<option value="${id}">${esc(P(id).name)}</option>`).join("")}</select></label><label class="f">この人に<select id="swTo">${to.map(([id,n])=>`<option value="${id}">${esc(n)}</option>`).join("")}</select></label></div>
       <button class="small" id="swOk">置き換える</button><p class="note">点数とチップはそのまま引き継ぎます。</p>`;
 }
+const chipNote=(g,id)=>(g.chips||{})[id]?`<br><span class="note">チップ${g.chips[id]>0?"+":""}${g.chips[id]}</span>`:"";
 function viewSession(s){
   if(!s){openSession=null;editGame=null;return tab==="set"?viewSet():viewSessions();}
   if(editGame!==null&&!s.games[editGame]) editGame=null;
@@ -568,7 +609,7 @@ function viewSession(s){
   const gap=Object.values(nets).reduce((a,b)=>a+b,0), chipOff=round1(chipGap(s)), fee=Number(s.rule.fee||0), hasExtra=(s.extras||[]).length>0;
   const head=s.members.map(id=>`<th>${esc(P(id).name)}</th>`).join("");
   const rows=s.games.map((g,gi)=>{const r=scoreGame(g.scores,s.rule,g.order||s.members,g.tobiBy);
-    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>!r.res[id]?'<td class="note">抜け</td>':s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="pt ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span>${g.tobiBy===id?'<br><span class="note">飛ばした</span>':""}</td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
+    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>!r.res[id]?'<td class="note">抜け</td>':s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span>${chipNote(g,id)}</td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="pt ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span>${g.tobiBy===id?'<br><span class="note">飛ばした</span>':""}${chipNote(g,id)}</td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
   return `<section class="card">
     ${howBox("set")}
     <div class="row between"><button class="small ghost" id="back">← 戻る</button></div>
@@ -582,13 +623,15 @@ function viewSession(s){
       <div class="grid2">${s.members.map(id=>{ const f=sfield(`data-sc="${id}" placeholder="${s.rule.direct?"30":s.rule.mode===4?"320":"32"}"`,editGame===null?(resume.sc[s.id]||{})[id]??"":s.games[editGame].scores[id]===undefined?"":String(s.games[editGame].scores[id]/scoreUnit(s.rule))), by=editGame===null?(resume.sc[s.id]||{})._tobi:s.games[editGame].tobiBy;
         return s.rule.tobi&&!s.rule.direct?`<div class="f"><span class="row between" style="flex-wrap:nowrap">${esc(P(id).name)}<button class="chip tiny" data-tb="${id}" aria-pressed="${by===id}" aria-label="${esc(P(id).name)}が飛ばした">飛ばした</button></span>${f}</div>`:`<label class="f">${esc(P(id).name)}${f}</label>`; }).join("")}</div>
       <button class="small ghost" id="auto">最後の1人を自動で埋める</button>
+      ${s.chipByGame?`<h3>この半荘のチップ</h3><div class="stack">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${chipField(`data-gc="${id}" placeholder="0"`,editGame===null?((resume.sc[s.id]||{})._gc||{})[id]??"":(s.games[editGame].chips||{})[id]??"")}</label>`).join("")}</div>`:""}
       <button class="primary wide" id="addG">${editGame===null?"記録する":"この半荘を直す"}</button>
       ${editGame===null?"":'<button class="small ghost" id="editNo">やめる</button>'}<span class="warn" id="gErr"></span><div class="stack" id="tieBox" hidden></div>
     </div>
   </section>
   <section class="card"><h2>チップ</h2>
-    <p class="note">半荘の終わりに、その時点の合計枚数を入れてください。</p>
+    ${s.chipByGame?`<p class="note">半荘ごとに入れています。合計：${s.members.map(id=>`${esc(P(id).name)} ${(s.chips||{})[id]??0}枚`).join("、")}</p><button class="small ghost" id="gcOff">合計だけの入力に戻す</button>`:`<p class="note">半荘の終わりに、その時点の合計枚数を入れてください。</p>
     <div class="stack">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${chipField(`data-chip="${id}"`,(s.chips||{})[id]??0)}</label>`).join("")}</div>
+    <button class="small ghost" id="gcOn">半荘ごとに入れる${unlocked()?"":'<span class="lock">拡張</span>'}</button>`}
     <p class="note">チップ1枚 ${s.rule.chipRate}P。小数も入れられます。</p>
     ${chipOff?`<p class="warn">チップの合計が ${chipOff}枚です。0枚になるはずなので確かめてください。</p>`:""}
   </section>
@@ -604,6 +647,7 @@ function viewSession(s){
     <div class="list">${pay.map(x=>`<div class="item" style="cursor:default"><span>${esc(P(x.from).name)} → ${esc(P(x.to).name)}</span><b class="num">${x.yen.toLocaleString()}P</b></div>`).join("")||'<span class="note">まだ精算はありません</span>'}</div>
     ${fee||(s.venue&&s.venue.amount)?`<p class="note">場代は店へ払う分なので、人の間の精算には入れず、収支からだけ引いています。</p>`:""}
     ${gap?`<p class="warn">やり取りの合計が ${gap.toLocaleString()}Pずれています。チップやその他の項目の回数を確かめてください。</p>`:""}
+    ${s.games.length?`<button class="wide" id="sShare">精算を共有（LINE など）</button><textarea id="shareBox" readonly hidden rows="8"></textarea>`:""}
     ${editGame===null?`<button class="primary wide" id="sDone">このセッションを記録する</button>`:""}
     <details><summary>日付・場所・ルールを直す</summary><div class="stack" style="margin-top:8px">
       <div class="grid2"><label class="f">日付<input type="date" id="sDate" value="${s.date}"></label><label class="f">場所<input id="sTags" value="${esc((s.tags||[]).join(" "))}"></label></div>
@@ -650,13 +694,18 @@ function bindSession(){
   // 4人で回す三麻は抜ける人の欄を隠す。入れかけの数字は残しておく
   let out=s.members.length<=s.rule.mode?null:editGame!==null?outOf(s,s.games[editGame]):(resume.sc[s.id]||{})._out||nextOut(s);
   const live=()=>all.filter(i=>i.dataset.sc!==out);
+  const gcs=[...document.querySelectorAll("[data-gc]")];
   const showOut=()=>{ all.forEach(i=>{i.closest(".f").style.display=i.dataset.sc===out?"none":"";});
+    gcs.forEach(i=>{i.closest(".f").style.display=i.dataset.gc===out?"none":"";});
     document.querySelectorAll("[data-out]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.out===out));
     document.querySelectorAll(`[data-tb="${out}"]`).forEach(b=>b.setAttribute("aria-pressed",false)); };
-  const keepScores=()=>{ if(editGame!==null) return; resume.sc[s.id]={...Object.fromEntries(all.map(i=>[i.dataset.sc,i.value])),_tobi:tobiPressed(),...(out?{_out:out}:{})}; keepResume();};
+  const keepScores=()=>{ if(editGame!==null) return; resume.sc[s.id]={...Object.fromEntries(all.map(i=>[i.dataset.sc,i.value])),_tobi:tobiPressed(),...(out?{_out:out}:{}),...(gcs.length?{_gc:Object.fromEntries(gcs.map(i=>[i.dataset.gc,i.value]))}:{})}; keepResume();};
   const tobiPressed=()=>{ const b=document.querySelector('[data-tb][aria-pressed="true"]'); return b?b.dataset.tb:undefined; };
   document.querySelectorAll("[data-tb]").forEach(b=>b.onclick=()=>{ const on=b.getAttribute("aria-pressed")!=="true"; document.querySelectorAll("[data-tb]").forEach(x=>x.setAttribute("aria-pressed",false)); b.setAttribute("aria-pressed",on); keepScores(); });
   all.forEach(i=>i.oninput=keepScores);
+  gcs.forEach(i=>i.oninput=keepScores);
+  const gcOn=document.getElementById("gcOn"); if(gcOn) gcOn.onclick=()=>{ if(!unlocked()){toast("半荘ごとのチップは拡張機能です");return;} undoable("半荘ごとのチップにしました",()=>startGameChips(s)); };
+  const gcOff=document.getElementById("gcOff"); if(gcOff) gcOff.onclick=()=>{ if(!confirm("半荘ごとの枚数を消して、合計だけにしますか？")) return; undoable("合計だけの入力に戻しました",()=>stopGameChips(s)); };
   document.querySelectorAll("[data-out]").forEach(b=>b.onclick=()=>{out=b.dataset.out; showOut(); keepScores();});
   showOut();
   document.getElementById("auto").onclick=()=>{const inputs=live(), empty=inputs.filter(i=>i.value.trim()==="");if(empty.length!==1){document.getElementById("gErr").textContent="空いている欄が1つのときに使えます";return;}
@@ -669,6 +718,9 @@ function bindSession(){
     if(inputs.some(i=>i.value.trim()==="")){document.getElementById("gErr").textContent="全員の点数を入れてください";return;}
     const scores=Object.fromEntries(inputs.map(i=>[i.dataset.sc,parseScore(i.value,scoreUnit(s.rule))]));
     if(Object.values(scores).includes(null)){document.getElementById("gErr").textContent="読めない点数があります";return;}
+    const gcLive=gcs.filter(i=>i.dataset.gc!==out&&i.value.trim()!=="");
+    if(gcLive.some(i=>parseSigned(i.value)===null)){document.getElementById("gErr").textContent="読めないチップの枚数があります";return;}
+    const chips=Object.fromEntries(gcLive.map(i=>[i.dataset.gc,parseSigned(i.value)]).filter(([,n])=>n));
     const r=scoreGame(scores,s.rule,s.members);
     if(!r.ok){document.getElementById("gErr").textContent=s.rule.direct?`合計が${fmtPt(r.total/1000)}です（0のはず）`:`合計が${r.total.toLocaleString()}点です（${r.expected.toLocaleString()}点のはず）`;return;}
     const flown=s.rule.tobi&&!s.rule.direct?Object.keys(scores).filter(id=>scores[id]<=0):[];
@@ -676,8 +728,8 @@ function bindSession(){
     if(tobiBy&&flown.includes(tobiBy)){document.getElementById("gErr").textContent="0点以下の人は飛ばした人にできません";return;}
     if(tobiBy&&!flown.length){document.getElementById("gErr").textContent="0点以下の人がいません。「飛ばした」を外してください";return;}
     const finish=order=>{
-      if(editGame!==null){ const i=editGame; editGame=null; undoable("半荘を直しました",()=>{s.games[i].scores=scores; if(order)s.games[i].order=order; else delete s.games[i].order; if(tobiBy)s.games[i].tobiBy=tobiBy; else delete s.games[i].tobiBy;}); return; }
-      s.games.push({scores,...(order?{order}:{}),...(tobiBy?{tobiBy}:{})}); db.sample=false; delete resume.sc[s.id]; save(); if(unlocked()) takeSnap(true); render(); warnBrowser();
+      if(editGame!==null){ const i=editGame; editGame=null; undoable("半荘を直しました",()=>{s.games[i].scores=scores; if(order)s.games[i].order=order; else delete s.games[i].order; if(tobiBy)s.games[i].tobiBy=tobiBy; else delete s.games[i].tobiBy; if(s.chipByGame){ s.games[i].chips=chips; syncGameChips(s); } }); return; }
+      s.games.push({scores,...(order?{order}:{}),...(tobiBy?{tobiBy}:{}),...(s.chipByGame?{chips}:{})}); syncGameChips(s); db.sample=false; delete resume.sc[s.id]; save(); if(unlocked()) takeSnap(true); render(); warnBrowser();
     };
     const box=document.getElementById("tieBox"), order=[];
     const groups=s.rule.direct||s.rule.tie==="split"?[]:tieGroups(scores);
@@ -699,7 +751,13 @@ function bindSession(){
   };
   const no=document.getElementById("editNo"); if(no) no.onclick=()=>{editGame=null;render();};
   document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{editGame=Number(b.dataset.edit);render();document.getElementById("gHead").scrollIntoView({block:"center"});});
-  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(!askDel(`${Number(b.dataset.del)+1}半荘目を消しますか？`))return; editGame=null;undoable("半荘を消しました",()=>{s.games.splice(Number(b.dataset.del),1);});});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(!askDel(`${Number(b.dataset.del)+1}半荘目を消しますか？`))return; editGame=null;undoable("半荘を消しました",()=>{s.games.splice(Number(b.dataset.del),1); syncGameChips(s);});});
+  const sh=document.getElementById("sShare"); if(sh) sh.onclick=async()=>{
+    const text=settleText(s,id=>P(id).name);
+    if(navigator.share){ try{ await navigator.share({text}); return; }catch(e){ if(e.name==="AbortError") return; } }
+    try{ await navigator.clipboard.writeText(text); toast("精算の文をコピーしました。LINE に貼り付けてください"); }
+    catch(e){ const b=document.getElementById("shareBox"); b.value=text; b.hidden=false; b.focus(); b.select(); toast("文を長押ししてコピーしてください"); }
+  };
   const done=document.getElementById("sDone"); if(done) done.onclick=()=>{
     if(live().some(i=>i.value.trim()!=="")){document.getElementById("gErr").textContent="入れかけの点数があります。先に「記録する」を押すか、消してください";document.getElementById("gErr").scrollIntoView({block:"center"});return;}
     openSession=null; tab="sessions"; render(); window.scrollTo(0,0); toast("記録しました"); };
@@ -932,10 +990,10 @@ function bindPlayers(){
 
 /* --- 設定 --- */
 function csvRows(){
-  const rows=[["日付","名前","場所","ルール","千点あたり(P)","半荘","メンバー","点数","着順","ポイント"]];
+  const rows=[["日付","名前","場所","ルール","千点あたり(P)","半荘","メンバー","点数","着順","ポイント","チップ"]];
   db.sessions.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>s.games.forEach((g,gi)=>{const r=scoreGame(g.scores,s.rule,g.order||s.members,g.tobiBy);
-    s.members.filter(id=>r.res[id]).forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,gi+1,P(id).name,g.scores[id],r.res[id].rank,r.res[id].point]));}));
-  freeDays(freeState().games).reverse().forEach(d=>d.items.forEach((g,i)=>rows.push([g.date,"フリー","",modeName(g.rule.mode),g.rule.rate,i+1,"自分",g.score,g.rank,freeLine(g).point])));
+    s.members.filter(id=>r.res[id]).forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,gi+1,P(id).name,g.scores[id],r.res[id].rank,r.res[id].point,(g.chips||{})[id]??""]));}));
+  freeDays(freeState().games).reverse().forEach(d=>d.items.forEach((g,i)=>rows.push([g.date,"フリー","",modeName(g.rule.mode),g.rule.rate,i+1,"自分",g.score,g.rank,freeLine(g).point,g.chips||""])));
   return rows;
 }
 function settleRows(){
@@ -989,6 +1047,10 @@ const HOWTO=[
  ["記録する",[
   ["フリーの結果を出す","着順を選び、点数を入れて「記録する」を押します。四麻は 300、三麻は 30 で 30000点です。箱下は「−」です。同卓の人は入れません。"],
   ["セットを始める","セットのタブの「＋ 新しく始める」で、ルールとメンバーを選んで「始める」を押します。半荘ごとに「記録する」を押し、終わったら「このセッションを記録する」を押します。入れた内容はその場で保存されています。"],
+  ["別の端末の記録を足す","記録係を交代した日の分などを1つにまとめます。もう一方の端末でバックアップを保存し、設定の「バックアップから戻す」でそのファイルを選んで「いまの記録に足す」を押します。拡張機能です。同じ人は名前で見分けるので、名前が違う人は別の人として増えます。そのときは記録をまとめる機能で1人にします。"],
+  ["半荘ごとのチップ","セットのチップの欄の「半荘ごとに入れる」を押すと、半荘の点数と一緒に枚数を入れる形になり、合計は自動で出ます。拡張機能です。"],
+  ["成績を1枚の画像にする","成績のタブで条件を選び、「1枚の画像にまとめる」を押します。収支、ポイント、収支の動き、着順が1枚になります。拡張機能です。"],
+  ["精算を LINE で送る","精算の「精算を共有」を押して、送り先に LINE のグループを選びます。名前ごとの収支と、誰が誰にいくら渡すかが文字で送られます。無料で使えます。"],
   ["4人で回す三麻","三麻のルールで4人を選んで始めると、半荘ごとに「抜ける人」を押して残りの3人の点数を入れる形になります。抜ける人は順番に送られるので、違うときだけ押し直します。"],
   ["点数の入れ方","四麻は100点棒があるので100点単位で、325 で 32500点です。三麻は千点単位で、32.5 で 32500点です。"],
   ["同点のとき","セットで同じ点数の人がいると、記録のときに上の人を聞きます。起家に近い人を押してください。ウマ・オカを分け合う形は、「持ち点・ウマを変える」で選べます。"],
@@ -1009,11 +1071,11 @@ const howtoHTML=()=>`<section class="card" id="howto"><div class="row between"><
 function lockedNote(what){ return `<p class="note">${what}は拡張機能です。上の欄に解放コードを入れると使えます。</p>`; }
 function viewUnlock(){
   const until=db.settings.unlockUntil;
-  if(unlocked()&&!db.settings.trial) return `<section class="card"><h2>拡張機能</h2><p class="note">メンバーの人数の上限がなくなり、バックアップ・条件の保存・CSV/Excel の書き出しが使えます。${until?`<b>${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b>`:""}</p></section>`;
+  if(unlocked()&&!db.settings.trial) return `<section class="card"><h2>拡張機能</h2><p class="note">メンバーの人数の上限がなくなり、バックアップ・別の端末の記録を足す・条件の保存・成績の1枚まとめ・半荘ごとのチップ・CSV/Excel の書き出しが使えます。${until?`<b>${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b>`:""}</p></section>`;
   return `<section class="card"><h2>拡張機能</h2>
     ${unlocked()?`<p class="note"><b>試用中です。${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b></p>`:db.settings.unlocked&&until?`<p class="warn">${db.settings.trial?"試用":"コード"}の期限が切れました。記録はそのまま残っていて、見ることも入れることもできます。</p>`:""}
     ${canTrial(db.settings)?`<div class="row"><button class="small primary" id="trialOk">${TRIAL_DAYS}日試す</button><span class="note">コードなしで全部使えます。1回だけです。</span></div>`:""}
-    <p class="note">メンバーを${FREE_PLAYERS+1}人以上登録でき、バックアップ・条件の保存・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
+    <p class="note">メンバーを${FREE_PLAYERS+1}人以上登録でき、バックアップ・別の端末の記録を足す・条件の保存・成績の1枚まとめ・半荘ごとのチップ・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
     <div class="row"><input id="codeIn" placeholder="コードを貼り付け" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" style="flex:1"><button class="primary" id="codeOk">開く</button></div>
     <span class="warn" id="codeMsg"></span></section>`;
 }
@@ -1027,7 +1089,11 @@ function viewRestore(){
     ${snaps.length?`<details><summary>端末の中の自動の控えから戻す（${snaps.length}個）</summary><div class="stack" style="margin-top:8px"><p class="note">間違えて消したときに戻せます。端末が壊れたり機種変更したりすると一緒になくなります。</p>
       <div class="list">${snaps.map((x,i)=>`<div class="item" style="cursor:default"><span class="num">${fmtAt(x.at)}</span><button class="small ghost" data-snap="${i}">これに戻す</button></div>`).join("")}</div></div></details>`:""}
     <span class="warn" id="rsMsg"></span>
-    <div class="stack" id="rsConfirm" hidden><div class="tablebox"><table id="rsTable"></table></div><p class="note" id="rsInfo"></p><button class="primary wide" id="rsYes">置き換える</button></div>
+    <div class="stack" id="rsConfirm" hidden><div class="tablebox"><table id="rsTable"></table></div><p class="note" id="rsInfo"></p><button class="primary wide" id="rsYes">置き換える</button>
+      <h3>別の端末の記録を足す${unlocked()?"":'<span class="lock">拡張</span>'}</h3>
+      <p class="note">いまの記録はそのままで、ファイルにしかないセットを足します。同じ人は名前で見分け、同じ回は二重に入りません。</p>
+      <label class="row" style="gap:6px"><input type="checkbox" id="rsFree"> フリーも足す（自分の別の端末のときだけ）</label>
+      <button class="wide" id="rsMerge">いまの記録に足す</button></div>
   </section>`;
 }
 const SUMMARY_ROWS=[["sets","セットの回数"],["setGames","セットの半荘"],["freeGames","フリーの半荘"],["players","メンバー"],["rules","保存したルール"],["last","最後の記録"],["code","照合の番号"]];
@@ -1043,6 +1109,16 @@ function bindRestore(){
   document.querySelectorAll("[data-snap]").forEach(b=>b.onclick=()=>read(snaps[Number(b.dataset.snap)].text));
   document.getElementById("rsOk").onclick=()=>read(document.getElementById("rs").value);
   document.getElementById("rsFile").onchange=async e=>{ const f=e.target.files[0]; if(f) read(await f.text()); };
+  document.getElementById("rsMerge").onclick=async()=>{ if(!pending) return;
+    if(!unlocked()){toast("記録を足すのは拡張機能です");return;}
+    takeSnap(true); freeState();
+    const r=mergeBackup(db,pending,{free:document.getElementById("rsFree").checked}), want=db.sessions.length;
+    if(r.sets||r.updated||r.free) db.sample=false;
+    openSession=null; undo=null; save(); await saveQueue;
+    let back=null; try{ back=idb?await idbDo("readonly",s=>s.get("db")):JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+    const same=back&&back.sessions.length===want;
+    restoreMsg=same?`足しました。セット${r.sets}回${r.updated?`、半荘が増えた回${r.updated}回`:""}${r.free?`、フリー${r.free}半荘`:""}${r.players?`、メンバー${r.players}人`:""}${r.rules?`、ルール${r.rules}個`:""}。同じだった回${r.same}回は足していません。`:"足しましたが、確かめの読み直しで違いが出ました。自動の控えから戻してやり直してください。";
+    render(); window.scrollTo(0,0); toast(same?"足しました":"確かめで違いが出ました"); };
   document.getElementById("rsYes").onclick=async()=>{ if(!pending) return;
     const want=backupSummary(pending).code;
     takeSnap(true);
@@ -1067,7 +1143,7 @@ function viewSettings(){
     <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="bk" readonly>${esc(JSON.stringify(db))}</textarea><div class="row"><button class="small" id="bkCopy">コピー</button></div></div></details>
 `:lockedNote("バックアップ")}
   </section>
-  ${on&&db.saved.length?`<section class="card"><h2>保存した条件</h2><div class="list">${savedList}</div></section>`:""}
+  ${db.saved.length?`<section class="card"><h2>保存した条件</h2><div class="list">${savedList}</div></section>`:""}
   <section class="card"><h2>CSV・Excel 書き出し${on?"":'<span class="lock">拡張</span>'}</h2>
     ${on?`<p class="note">全部の記録を出します。Excel は「半荘ごと」と「精算」の2枚のシートになります。</p>
     <div class="row"><button class="small primary" id="xlsxFile">Excel に保存</button><button class="small" id="csvFile">CSV（半荘ごと）</button><button class="small" id="csvFile2">CSV（精算）</button></div>
