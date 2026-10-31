@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>半荘ノート</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#4f6b55">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="半荘ノート">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<style>
+/* 層：上に条件バー → 数字 → グラフ → 一覧。下に固定のタブ。雀簿寄りのくすんだ緑と丸い角 */
+:root{
+  --bg:#f3f4ee; --card:#fbfbf7; --fg:#26302a; --mute:#6c776f; --line:#dde2d6;
+  --accent:#4f6b55; --accent-weak:#e3ebe0; --plus:#2f6fb0; --minus:#c0443b; --gold:#b8892c;
+  --r1:#4f6b55; --r2:#86a17c; --r3:#c9b77f; --r4:#c98a7a;
+  --font:"Meiryo","メイリオ","Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#181c19; --card:#212722; --fg:#e7ebe4; --mute:#9aa59c; --line:#323a33;
+  --accent:#8fb293; --accent-weak:#2b362d; --plus:#7fb2e8; --minus:#ec8a80; --gold:#d9b25c;
+  --r1:#8fb293; --r2:#5f7d5f; --r3:#a99a63; --r4:#a8695b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#181c19; --card:#212722; --fg:#e7ebe4; --mute:#9aa59c; --line:#323a33;
+  --accent:#8fb293; --accent-weak:#2b362d; --plus:#7fb2e8; --minus:#ec8a80; --gold:#d9b25c;
+  --r1:#8fb293; --r2:#5f7d5f; --r3:#a99a63; --r4:#a8695b; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+.wrap,.card,.stack,.grid2>*,.grid3>*,.row>*{min-width:0}
+input[type=date],input:not([type]),select{width:100%}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(84px + env(safe-area-inset-bottom,0px))}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:720px;margin:0 auto}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 8px;display:flex;align-items:center;gap:10px}
+header.top h1{font-size:20px;margin:0;letter-spacing:.04em}
+header.top .sub{color:var(--mute);font-size:12px}
+.badge{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent-weak);color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:grid;gap:10px}
+.stack{display:grid;gap:12px}
+h2{font-size:16px;margin:0}
+h3{font-size:14px;margin:0;color:var(--mute);font-weight:normal}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.between{justify-content:space-between}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:7px 14px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--card);border-color:var(--accent)}
+button.ghost{background:transparent}
+button.small{padding:3px 10px;font-size:13px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chip{border-radius:999px;padding:4px 12px;border:1px solid var(--line);background:var(--card);font-size:13px}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--card);border-color:var(--accent)}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 8px;min-width:0}
+input[type=number]{width:100%;text-align:right;font-variant-numeric:tabular-nums}
+label.f{display:grid;gap:2px;font-size:12px;color:var(--mute)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.num{font-variant-numeric:tabular-nums}
+.plus{color:var(--plus)} .minus{color:var(--minus)}
+.tablebox{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:normal;color:var(--mute);font-size:12px}
+.note{color:var(--mute);font-size:12px}
+.warn{color:var(--minus);font-size:13px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--card);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+nav.tabs button{border:none;background:transparent;border-radius:10px;padding:6px 0;display:grid;gap:0;justify-items:center;font-size:12px;color:var(--mute)}
+nav.tabs button svg{width:22px;height:22px}
+nav.tabs button[aria-current="true"]{color:var(--accent);background:var(--accent-weak)}
+.list{display:grid;gap:8px}
+.item{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;text-align:left;width:100%}
+.item .meta{color:var(--mute);font-size:12px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.chartbox{position:relative;height:220px}
+.lock{font-size:11px;color:var(--gold);border:1px solid var(--gold);border-radius:999px;padding:0 6px;margin-left:6px}
+textarea{width:100%;min-height:120px;font:12px/1.4 ui-monospace,Consolas,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px}
+.sample{background:var(--accent-weak);color:var(--accent);border-radius:12px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+details summary{cursor:pointer;color:var(--accent)}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .2s}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div><h1>半荘ノート</h1><div class="sub">麻雀の点数・精算・成績 <span class="badge">試作版</span></div></div>
+  </header>
+  <main id="view" class="stack"></main>
+</div>
+
+<nav class="tabs" aria-label="画面の切り替え">
+  <button data-tab="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>成績</button>
+  <button data-tab="sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>記録</button>
+  <button data-tab="players"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5.5 6.5-5.5s5.7 2 6.5 5.5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.5c2.3.2 3.9 1.8 4.5 4.5"/></svg>メンバー</button>
+  <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg>設定</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="core.js"></script>
+
+<script>
+/* ===== 保存（この端末の中だけ） ===== */
+const KEY="jakuroku-v1";
+const uid=()=>Math.random().toString(36).slice(2,9);
+let db, idb=null, saveBroken=false;
+function sample(){
+  const P=[["たろう","#4f6b55"],["はなこ","#2f6fb0"],["じろう","#c0443b"],["さぶろう","#b8892c"]].map(([name,color])=>({id:uid(),name,color,sample:true}));
+  const [a,b,c,d]=P.map(p=>p.id);
+  const mk=(date,title,tags,preset,members,games,chips,rate)=>{const rule={...RULE_PRESETS[preset]}; if(rate)rule.rate=rate;
+    return {id:uid(),date,title,tags,rule,members,games:games.map(g=>({scores:Object.fromEntries(members.map((m,i)=>[m,g[i]]))})),chips:Object.fromEntries(members.map((m,i)=>[m,chips[i]])),sample:true};};
+  const S=[
+    mk("2026-08-02","駅前セット",["雀荘A"],"m4",[a,b,c,d],[[42000,31000,17000,10000],[25000,38000,22000,15000],[30500,30500,24000,15000]],[0,0,0,0],50),
+    mk("2026-09-13","家麻雀",["家"],"m3",[a,b,c],[[52000,38000,15000],[30000,47000,28000],[61000,24000,20000]],[3,-1,-2],50),
+    mk("2026-10-04","駅前セット",["雀荘A"],"m4",[a,b,c,d],[[18000,44000,26000,12000],[39000,27000,21000,13000]],[0,0,0,0],100),
+    mk("2026-10-25","家麻雀",["家"],"m3",[a,b,d],[[45000,35000,25000],[20000,40000,45000],[50000,40000,15000]],[2,0,-2],100),
+  ];
+  return {players:P,sessions:S,saved:[],settings:{mode:"easy",unlocked:false},sample:true};
+}
+function idbOpen(){ return new Promise((ok,ng)=>{const r=indexedDB.open("hanchan-note",1); r.onupgradeneeded=()=>r.result.createObjectStore("kv"); r.onsuccess=()=>ok(r.result); r.onerror=()=>ng(r.error);}); }
+function idbDo(mode,fn){ return new Promise((ok,ng)=>{const tx=idb.transaction("kv",mode); const q=fn(tx.objectStore("kv")); tx.oncomplete=()=>ok(q.result); tx.onerror=tx.onabort=()=>ng(tx.error);}); }
+// IndexedDB を先に見る。前の版の localStorage に記録があれば引き継ぐ
+async function load(){
+  try{ idb=await idbOpen(); const v=await idbDo("readonly",s=>s.get("db")); if(v) return v; }catch(e){ idb=null; }
+  try{ const s=localStorage.getItem(KEY); if(s){ const d=JSON.parse(s); db=d; save(); return d; } }catch(e){}
+  return sample();
+}
+let saveQueue=Promise.resolve();
+function save(){
+  const text=JSON.stringify(db);
+  saveQueue=saveQueue.then(async()=>{
+    try{ if(!idb) throw 0; await idbDo("readwrite",s=>s.put(JSON.parse(text),"db")); }
+    catch(e){ try{ localStorage.setItem(KEY,text); }catch(e2){ saveBroken=true; render(); } }
+  });
+}
+const unlocked=()=>!!db.settings.unlocked;
+const P=id=>db.players.find(p=>p.id===id)||{name:"?",color:"#888"};
+const fmtYen=v=>(v>0?"+":"")+v.toLocaleString("ja-JP")+"円";
+const fmtPt=v=>(v>0?"+":"")+v.toFixed(1);
+const cls=v=>v>0?"plus":v<0?"minus":"";
+const pct=v=>(v*100).toFixed(0)+"%";
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const today=()=>new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+
+/* ===== 画面 ===== */
+let tab="stats", openSession=null, charts=[];
+let filter={from:"",to:"",mode:"",rates:[],tags:[],members:[],pick:[]};
+const view=document.getElementById("view");
+document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;openSession=null;render();});
+
+function render(){
+  charts.forEach(c=>c.destroy()); charts=[];
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab));
+  const banner = db.sample ? `<div class="sample"><span>いま入っているのは見本のデータです</span><button class="small" id="clearSample">見本を消して始める</button></div>`:"";
+  const notice = db.settings.noticeDone ? "" : `<div class="sample"><span>記録はこの端末の中だけに残ります。iPhone はホーム画面に追加して使ってください。機種変更やブラウザのデータ削除で消えるので、残したいときはバックアップ（拡張機能）を使ってください。</span><button class="small" id="noticeOk">わかった</button></div>`;
+  const broken = saveBroken ? `<p class="warn">記録を保存できませんでした。端末の空き容量を確かめてください。</p>`:"";
+  view.innerHTML = broken + notice + banner + ({stats:viewStats,sessions:viewSessions,players:viewPlayers,settings:viewSettings}[tab])();
+  const cs=document.getElementById("clearSample"); if(cs) cs.onclick=()=>{db={players:[],sessions:[],saved:[],settings:db.settings};save();render();};
+  const no=document.getElementById("noticeOk"); if(no) no.onclick=()=>{db.settings.noticeDone=true;save();render();};
+  ({stats:bindStats,sessions:bindSessions,players:bindPlayers,settings:bindSettings}[tab])();
+}
+
+/* --- 成績 --- */
+function allRates(){ return [...new Set(db.sessions.map(s=>Number(s.rule.rate)))].sort((a,b)=>a-b); }
+function allTags(){ return [...new Set(db.sessions.flatMap(s=>s.tags||[]))]; }
+function viewStats(){
+  const sel=filterSessions(db.sessions,filter);
+  const n = filter.mode? Number(filter.mode) : (sel.every(s=>s.rule.mode===3)&&sel.length?3:4);
+  const st=playerStats(sel,n);
+  const ids=Object.keys(st).sort((a,b)=>st[b].yen-st[a].yen);
+  const chipRow=(arr,key,label)=>arr.map(v=>`<button class="chip" data-f="${key}" data-v="${esc(v.v)}" aria-pressed="${v.on}">${esc(v.l)}</button>`).join("");
+  const pickList = db.sessions.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<label class="row" style="gap:6px"><input type="checkbox" data-pick="${s.id}" ${filter.pick.includes(s.id)?"checked":""}> <span class="num">${s.date}</span> ${esc(s.title||"")} <span class="note">${s.rule.mode}人・${s.rule.rate}円</span></label>`).join("");
+  return `
+  <section class="card" aria-labelledby="fh">
+    <div class="row between"><h2 id="fh">集計の条件</h2><span class="note">${sel.length}件のセッションが対象</span></div>
+    <div class="grid2"><label class="f">いつから<input type="date" id="ffrom" value="${filter.from}"></label><label class="f">いつまで<input type="date" id="fto" value="${filter.to}"></label></div>
+    <div class="row">${chipRow([{v:"",l:"四麻と三麻",on:!filter.mode},{v:"4",l:"四麻",on:filter.mode==="4"},{v:"3",l:"三麻",on:filter.mode==="3"}],"mode")}</div>
+    ${!filter.mode?'<p class="note">四麻と三麻をまとめると、着順の数字は混ざります。どちらかを選ぶと正確です。</p>':""}
+    <div class="row"><span class="note">レート</span>${chipRow(allRates().map(r=>({v:r,l:r+"円/千点",on:filter.rates.includes(r)})),"rates")}</div>
+    <div class="row"><span class="note">場所</span>${chipRow(allTags().map(t=>({v:t,l:t,on:filter.tags.includes(t)})),"tags")}</div>
+    <div class="row"><span class="note">この人がいる回</span>${chipRow(db.players.map(p=>({v:p.id,l:p.name,on:filter.members.includes(p.id)})),"members")}</div>
+    <details ${filter.pick.length?"open":""}><summary>セッションを選んで集計する（${filter.pick.length?filter.pick.length+"件選択中":"選ばなければ全部"}）</summary><div class="stack" style="margin-top:8px">${pickList||'<span class="note">記録がまだありません</span>'}</div></details>
+    <div class="row between">
+      <div class="row">${db.saved.map((sv,i)=>`<button class="chip" data-load="${i}">${esc(sv.name)}</button>`).join("")}</div>
+      <div class="row"><button class="small ghost" id="freset">条件を外す</button><button class="small" id="fsave">この条件を保存${unlocked()?"":'<span class="lock">拡張</span>'}</button></div>
+    </div>
+    <div id="saveBox" hidden class="row"><input id="saveName" placeholder="例：テンゴの三麻・今年"><button class="small primary" id="saveOk">保存</button></div>
+    <div id="saveLock" hidden class="row"><span class="note">条件の保存は拡張機能です。設定タブで解放コードを入れると使えます。</span><button class="small" id="toSettings">設定へ</button></div>
+  </section>
+  ${ids.length? `
+  <section class="card" aria-labelledby="sh">
+    <h2 id="sh">成績</h2>
+    <div class="tablebox"><table>
+      <thead><tr><th>名前</th><th>収支</th><th>ポイント</th><th>半荘</th><th>平均着順</th><th>トップ率</th><th>連対率</th><th>ラス回避</th></tr></thead>
+      <tbody>${ids.map(id=>{const p=st[id];return `<tr><td><span class="dot" style="background:${P(id).color}"></span>${esc(P(id).name)}</td><td class="${cls(p.yen)}">${fmtYen(p.yen)}</td><td class="${cls(p.point)}">${fmtPt(p.point)}</td><td>${p.games}</td><td>${p.avgRank?p.avgRank.toFixed(2):"-"}</td><td>${pct(p.top)}</td><td>${pct(p.rentai)}</td><td>${pct(p.lastAvoid)}</td></tr>`}).join("")}</tbody>
+    </table></div>
+    <p class="note">収支＝ポイント×レート＋チップ×チップ単価＋その他の項目−場代。同点はウマ・オカを分け合い、トップ率・ラス回避率では同着もその順位に数えます。</p>
+  </section>
+  <section class="card"><h2>収支の動き</h2><div class="chartbox"><canvas id="c1" aria-label="収支の推移"></canvas></div></section>
+  <section class="card"><h2>着順の割合</h2><div class="chartbox"><canvas id="c2" aria-label="着順の割合"></canvas></div></section>
+  <section class="card"><h2>レートごとの収支</h2><div class="chartbox"><canvas id="c3" aria-label="レートごとの収支"></canvas></div></section>
+  ` : `<section class="card"><p>この条件に合う記録はありません。条件を外すか、記録タブから対局を入れてください。</p></section>`}`;
+}
+function cssv(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function bindStats(){
+  const upd=()=>render();
+  document.getElementById("ffrom").onchange=e=>{filter.from=e.target.value;upd();};
+  document.getElementById("fto").onchange=e=>{filter.to=e.target.value;upd();};
+  document.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.f, v=b.dataset.v;
+    if(k==="mode"){filter.mode=v;}
+    else{ const val = k==="rates"?Number(v):v; const a=filter[k]; const i=a.indexOf(val); i>=0?a.splice(i,1):a.push(val); }
+    upd();
+  });
+  document.querySelectorAll("[data-pick]").forEach(c=>c.onchange=()=>{const id=c.dataset.pick;const i=filter.pick.indexOf(id); c.checked? (i<0&&filter.pick.push(id)) : (i>=0&&filter.pick.splice(i,1)); upd();});
+  document.getElementById("freset").onclick=()=>{filter={from:"",to:"",mode:"",rates:[],tags:[],members:[],pick:[]};upd();};
+  document.getElementById("fsave").onclick=()=>{
+    if(!unlocked()){document.getElementById("saveLock").hidden=false;return;}
+    document.getElementById("saveBox").hidden=false;document.getElementById("saveName").focus();};
+  document.getElementById("toSettings").onclick=()=>{tab="settings";render();};
+  document.getElementById("saveOk").onclick=()=>{const name=document.getElementById("saveName").value.trim()||"保存した条件";db.saved.push({name,filter:JSON.parse(JSON.stringify(filter))});save();render();};
+  document.querySelectorAll("[data-load]").forEach(b=>b.onclick=()=>{filter=JSON.parse(JSON.stringify(db.saved[b.dataset.load].filter));render();});
+  if(typeof Chart==="undefined" || !document.getElementById("c1")) return;
+  const sel=filterSessions(db.sessions,filter);
+  const n = filter.mode? Number(filter.mode) : (sel.every(s=>s.rule.mode===3)&&sel.length?3:4);
+  const st=playerStats(sel,n); const ids=Object.keys(st);
+  const fg=cssv("--mute"), line=cssv("--line");
+  Chart.defaults.color=fg; Chart.defaults.font.family=cssv("--font"); Chart.defaults.borderColor=line;
+  const dates=[...new Set(sel.map(s=>s.date))].sort();
+  charts.push(new Chart(document.getElementById("c1"),{type:"line",data:{labels:dates.map(d=>d.slice(5).replace("-","/")),
+    datasets:ids.map(id=>{let last=0;const m=Object.fromEntries(st[id].hist.map(h=>[h.date,h.yen]));return {label:P(id).name,borderColor:P(id).color,backgroundColor:P(id).color,tension:.25,pointRadius:3,
+      data:dates.map(d=>{if(d in m)last=m[d];return last;})};})},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{boxWidth:10}}},scales:{y:{ticks:{callback:v=>v.toLocaleString()+"円"}}}}}));
+  const rc=[cssv("--r1"),cssv("--r2"),cssv("--r3"),cssv("--r4")];
+  charts.push(new Chart(document.getElementById("c2"),{type:"bar",data:{labels:ids.map(id=>P(id).name),
+    datasets:Array.from({length:n},(_,k)=>({label:(k+1)+"着",backgroundColor:rc[k],data:ids.map(id=>{const p=st[id];const g=p.dist.reduce((a,b)=>a+b,0)||1;return Math.round(p.dist[k]/g*100);})}))},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{boxWidth:10}}},scales:{x:{stacked:true},y:{stacked:true,max:100,ticks:{callback:v=>v+"%"}}}}}));
+  const rates=[...new Set(sel.map(s=>Number(s.rule.rate)))].sort((a,b)=>a-b);
+  charts.push(new Chart(document.getElementById("c3"),{type:"bar",data:{labels:rates.map(r=>r+"円/千点"),
+    datasets:ids.map(id=>({label:P(id).name,backgroundColor:P(id).color,data:rates.map(r=>{const t=playerStats(sel.filter(s=>Number(s.rule.rate)===r),n)[id];return t?t.yen:0;})}))},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{boxWidth:10}}},scales:{y:{ticks:{callback:v=>v.toLocaleString()+"円"}}}}}));
+}
+
+/* --- 記録 --- */
+function viewSessions(){
+  if(openSession) return viewSession(db.sessions.find(s=>s.id===openSession));
+  const list=db.sessions.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(s=>{
+    const t=sessionTotals(s); const best=Object.entries(t).sort((a,b)=>b[1].yen-a[1].yen)[0];
+    return `<button class="item" data-open="${s.id}"><span><b class="num">${s.date}</b> ${esc(s.title||"")}<br><span class="meta">${s.rule.mode===3?"三麻":"四麻"}・${s.rule.rate}円/千点・${s.games.length}半荘・${(s.tags||[]).map(esc).join(" ")}</span></span><span class="meta">${best?esc(P(best[0]).name)+" "+fmtYen(best[1].yen):""}</span></button>`;}).join("");
+  return `<section class="card"><div class="row between"><h2>セッション</h2><button class="primary" id="newS">＋ 新しく始める</button></div>
+    <div id="newBox" hidden class="stack"></div>
+    <div class="list">${list||'<p class="note">まだ記録がありません。「新しく始める」から入れてください。</p>'}</div></section>`;
+}
+function newBoxHTML(){
+  const easy=db.settings.mode==="easy";
+  return `<div class="grid2"><label class="f">日付<input type="date" id="nDate" value="${today()}"></label><label class="f">名前（任意）<input id="nTitle" placeholder="例：駅前セット"></label></div>
+  <label class="f">ルール<select id="nPreset">${Object.entries(RULE_PRESETS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
+  <div class="grid3"><label class="f">レート（円/千点）<input type="number" id="nRate" value="50" inputmode="decimal"></label><label class="f">チップ1枚（円）<input type="number" id="nChip" value="0" inputmode="decimal"></label><label class="f">場代（1人・円）<input type="number" id="nFee" value="0" inputmode="numeric"></label></div>
+  ${easy?"":`<div class="grid3"><label class="f">持ち点<input type="number" id="nStart"></label><label class="f">返し<input type="number" id="nRet"></label><label class="f">ウマ（カンマ区切り）<input id="nUma"></label></div>
+  <label class="f">同点のとき<select id="nTie"><option value="split">ウマ・オカを分け合う</option><option value="seat">上家を上にする</option></select></label>`}
+  <label class="f">場所・タグ（任意・スペース区切り）<input id="nTags" placeholder="例：雀荘A"></label>
+  <div><span class="note">メンバー（四麻は4人、三麻は3人を選ぶ）</span><div class="row" id="nMem">${db.players.map(p=>`<button class="chip" data-mem="${p.id}" aria-pressed="false">${esc(p.name)}</button>`).join("")||'<span class="note">先にメンバータブで人を登録してください</span>'}</div></div>
+  <div class="row"><button class="primary" id="nOk">始める</button><span class="warn" id="nErr"></span></div>`;
+}
+function bindSessions(){
+  if(openSession) return bindSession();
+  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{openSession=b.dataset.open;render();});
+  document.getElementById("newS").onclick=()=>{
+    const box=document.getElementById("newBox"); box.hidden=false; box.innerHTML=newBoxHTML();
+    const fill=()=>{const p=RULE_PRESETS[document.getElementById("nPreset").value];
+      document.getElementById("nRate").value=p.rate; document.getElementById("nChip").value=p.chipRate;
+      if(db.settings.mode!=="easy"){document.getElementById("nStart").value=p.start;document.getElementById("nRet").value=p.ret;document.getElementById("nUma").value=p.uma.join(",");}};
+    document.getElementById("nPreset").onchange=fill; fill();
+    const mem=[]; box.querySelectorAll("[data-mem]").forEach(b=>b.onclick=()=>{const i=mem.indexOf(b.dataset.mem); i>=0?mem.splice(i,1):mem.push(b.dataset.mem); b.setAttribute("aria-pressed",i<0);});
+    document.getElementById("nOk").onclick=()=>{
+      const p={...RULE_PRESETS[document.getElementById("nPreset").value]};
+      p.rate=Number(document.getElementById("nRate").value)||0; p.chipRate=Number(document.getElementById("nChip").value)||0; p.fee=Number(document.getElementById("nFee").value)||0;
+      if(db.settings.mode!=="easy"){p.start=Number(document.getElementById("nStart").value)||p.start;p.ret=Number(document.getElementById("nRet").value)||p.ret;
+        const u=document.getElementById("nUma").value.split(/[,、\s]+/).filter(Boolean).map(Number); if(u.length===p.mode)p.uma=u; p.tie=document.getElementById("nTie").value;}
+      if(mem.length!==p.mode){document.getElementById("nErr").textContent=`${p.mode}人を選んでください（いま${mem.length}人）`;return;}
+      const s={id:uid(),date:document.getElementById("nDate").value||today(),title:document.getElementById("nTitle").value.trim(),tags:document.getElementById("nTags").value.split(/\s+/).filter(Boolean),rule:p,members:mem.slice(),games:[],chips:{}};
+      db.sessions.push(s); db.sample=false; save(); openSession=s.id; render();
+    };
+  };
+}
+function viewSession(s){
+  if(!s){openSession=null;return viewSessions();}
+  const t=sessionTotals(s); const nets=Object.fromEntries(Object.entries(t).map(([k,v])=>[k,v.net])); const pay=settle(nets);
+  const gap=Object.values(nets).reduce((a,b)=>a+b,0), chipOff=round1(chipGap(s)), fee=Number(s.rule.fee||0), hasExtra=(s.extras||[]).length>0;
+  const head=s.members.map(id=>`<th>${esc(P(id).name)}</th>`).join("");
+  const rows=s.games.map((g,gi)=>{const r=scoreGame(g.scores,s.rule,s.members);
+    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="note ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`).join("")}<td><button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
+  return `<section class="card">
+    <div class="row between"><button class="small ghost" id="back">← 一覧</button><span class="note">${s.rule.mode===3?"三麻":"四麻"}・持ち${s.rule.start}返し${s.rule.ret}・ウマ${s.rule.uma.join("/")}・${s.rule.rate}円/千点</span></div>
+    <h2><span class="num">${s.date}</span> ${esc(s.title||"")}</h2>
+    <div class="tablebox"><table><thead><tr><th>半荘</th>${head}<th></th></tr></thead><tbody>${rows||""}</tbody></table></div>
+    <div class="stack"><h3>終局の点数を入れる（合計 ${(s.rule.start*s.rule.mode).toLocaleString()}点）</h3>
+      <div class="grid${s.rule.mode===3?3:2}">${s.members.map(id=>`<label class="f">${esc(P(id).name)}<input type="number" inputmode="numeric" data-sc="${id}" placeholder="例 32000"></label>`).join("")}</div>
+      <div class="row"><button class="primary" id="addG">この半荘を足す</button><button class="small ghost" id="auto">最後の1人を自動で埋める</button><span class="warn" id="gErr"></span></div>
+    </div>
+  </section>
+  <section class="card"><h2>チップ（終わりに合計枚数）</h2>
+    <div class="grid${s.rule.mode===3?3:2}">${s.members.map(id=>`<label class="f">${esc(P(id).name)}<input type="number" inputmode="decimal" step="0.5" data-chip="${id}" value="${(s.chips||{})[id]??0}"></label>`).join("")}</div>
+    <p class="note">チップ1枚 ${s.rule.chipRate}円。小数も入れられます。</p>
+    ${chipOff?`<p class="warn">チップの合計が ${chipOff}枚です。0枚になるはずなので確かめてください。</p>`:""}
+  </section>
+  ${hasExtra||db.settings.mode!=="easy"?extrasCard(s):""}
+  <section class="card"><h2>精算</h2>
+    <div class="tablebox"><table><thead><tr><th>名前</th><th>ポイント</th><th>チップ</th>${hasExtra?"<th>その他</th>":""}<th>場代</th><th>収支</th></tr></thead><tbody>
+    ${s.members.map(id=>`<tr><td><span class="dot" style="background:${P(id).color}"></span>${esc(P(id).name)}</td><td class="${cls(t[id].point)}">${fmtPt(t[id].point)}</td><td>${t[id].chips}</td>${hasExtra?`<td class="${cls(t[id].extra)}">${t[id].extra.toLocaleString()}</td>`:""}<td>${t[id].fee}</td><td class="${cls(t[id].yen)}"><b>${fmtYen(t[id].yen)}</b></td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="list">${pay.map(x=>`<div class="item" style="cursor:default"><span>${esc(P(x.from).name)} → ${esc(P(x.to).name)}</span><b class="num">${x.yen.toLocaleString()}円</b></div>`).join("")||'<span class="note">まだ精算はありません</span>'}</div>
+    ${fee?`<p class="note">場代は1人 ${fee.toLocaleString()}円。店へ払う分なので、人の間の精算には入れず、収支からだけ引いています。</p>`:""}
+    ${gap?`<p class="warn">やり取りの合計が ${gap.toLocaleString()}円ずれています。チップやその他の項目の回数を確かめてください。</p>`:""}
+    <div class="row"><button class="small ghost" id="delS">このセッションを消す</button><span id="delConfirm" hidden><button class="small" id="delYes">本当に消す</button></span></div>
+  </section>`;
+}
+function extrasCard(s){
+  const cols=s.rule.mode===3?3:2;
+  const items=(s.extras||[]).map(x=>{const off=round1(extraGap(x));return `<div class="stack">
+    <div class="row between"><b>${esc(x.name)}</b><span class="row"><span class="note">1回 ${Number(x.price).toLocaleString()}円</span><button class="small ghost" data-xdel="${x.id}" aria-label="${esc(x.name)}を消す">消す</button></span></div>
+    <div class="grid${cols}">${s.members.map(id=>`<label class="f">${esc(P(id).name)}<input type="number" inputmode="decimal" step="0.5" data-xid="${x.id}" data-xp="${id}" value="${(x.counts||{})[id]??0}"></label>`).join("")}</div>
+    ${off?`<p class="warn">回数の合計が ${off}回です。もらう人と払う人が釣り合っていません（差し入れなど、わざとならそのままで大丈夫です）。</p>`:""}
+  </div>`;}).join("");
+  return `<section class="card"><h2>その他の項目</h2>
+    <p class="note">祝儀・焼き鳥・トビ賞など。もらう人はプラス、払う人はマイナスの回数を入れます。</p>
+    ${items}
+    <div class="grid2"><label class="f">項目の名前<input id="xName" placeholder="例：トビ賞"></label><label class="f">1回の金額（円）<input type="number" inputmode="numeric" id="xPrice" placeholder="例 1000"></label></div>
+    <div class="row"><button class="small" id="xAdd">項目を足す</button><span class="warn" id="xErr"></span></div>
+  </section>`;
+}
+function bindExtras(s){
+  const add=document.getElementById("xAdd"); if(!add) return;
+  add.onclick=()=>{
+    const name=document.getElementById("xName").value.trim(), price=Number(document.getElementById("xPrice").value);
+    if(!name||!price){document.getElementById("xErr").textContent="名前と金額を入れてください";return;}
+    s.extras=s.extras||[]; s.extras.push({id:uid(),name,price,counts:{}}); db.sample=false; save(); render();
+  };
+  document.querySelectorAll("[data-xp]").forEach(i=>i.onchange=()=>{const x=s.extras.find(v=>v.id===i.dataset.xid); x.counts[i.dataset.xp]=Number(i.value)||0; save(); render();});
+  document.querySelectorAll("[data-xdel]").forEach(b=>b.onclick=()=>{s.extras=s.extras.filter(v=>v.id!==b.dataset.xdel); save(); render();});
+}
+function bindSession(){
+  const s=db.sessions.find(x=>x.id===openSession); if(!s) return;
+  bindExtras(s);
+  document.getElementById("back").onclick=()=>{openSession=null;render();};
+  const inputs=[...document.querySelectorAll("[data-sc]")];
+  document.getElementById("auto").onclick=()=>{const empty=inputs.filter(i=>i.value==="");if(empty.length!==1){document.getElementById("gErr").textContent="空いている欄が1つのときに使えます";return;}
+    const sum=inputs.filter(i=>i.value!=="").reduce((a,i)=>a+Number(i.value),0); empty[0].value=s.rule.start*s.rule.mode-sum;};
+  document.getElementById("addG").onclick=()=>{
+    if(inputs.some(i=>i.value==="")){document.getElementById("gErr").textContent="全員の点数を入れてください";return;}
+    const scores=Object.fromEntries(inputs.map(i=>[i.dataset.sc,Number(i.value)]));
+    const r=scoreGame(scores,s.rule,s.members);
+    if(!r.ok){document.getElementById("gErr").textContent=`合計が${r.total.toLocaleString()}点です（${r.expected.toLocaleString()}点のはず）`;return;}
+    s.games.push({scores}); db.sample=false; save(); render();
+  };
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{s.games.splice(Number(b.dataset.del),1);save();render();});
+  document.querySelectorAll("[data-chip]").forEach(i=>i.onchange=()=>{s.chips=s.chips||{};s.chips[i.dataset.chip]=Number(i.value)||0;save();render();});
+  document.getElementById("delS").onclick=()=>{document.getElementById("delConfirm").hidden=false;};
+  document.getElementById("delYes").onclick=()=>{db.sessions=db.sessions.filter(x=>x.id!==s.id);save();openSession=null;render();};
+}
+
+/* --- メンバー --- */
+const COLORS=["#4f6b55","#2f6fb0","#c0443b","#b8892c","#7a5ea8","#2d8a8a","#c06a2b","#6b6b6b"];
+function viewPlayers(){
+  return `<section class="card"><h2>メンバー</h2>
+  <div class="list">${db.players.map(p=>`<div class="item" style="cursor:default"><span><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</span><span class="note">${db.sessions.filter(s=>s.members.includes(p.id)).length}回参加</span></div>`).join("")||'<p class="note">まだ誰もいません</p>'}</div>
+  <div class="row"><input id="pName" placeholder="名前" style="flex:1"><button class="primary" id="pAdd">足す</button></div></section>`;
+}
+function bindPlayers(){
+  document.getElementById("pAdd").onclick=()=>{const n=document.getElementById("pName").value.trim(); if(!n)return;
+    db.players.push({id:uid(),name:n,color:COLORS[db.players.length%COLORS.length]}); save(); render();};
+}
+
+/* --- 設定 --- */
+function csvRows(){
+  const rows=[["日付","名前","場所","ルール","レート(円/千点)","半荘","メンバー","点数","着順","ポイント"]];
+  db.sessions.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>s.games.forEach((g,gi)=>{const r=scoreGame(g.scores,s.rule,s.members);
+    s.members.forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,gi+1,P(id).name,g.scores[id],r.res[id].rank,r.res[id].point]));}));
+  return rows;
+}
+function settleRows(){
+  const rows=[["日付","名前","場所","ルール","レート(円/千点)","メンバー","半荘数","ポイント","チップ","その他","場代","収支"]];
+  db.sessions.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>{const t=sessionTotals(s);
+    s.members.forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,P(id).name,t[id].games,t[id].point,t[id].chips,t[id].extra,t[id].fee,t[id].yen]));});
+  return rows;
+}
+function stamp(){ return today().replace(/-/g,""); }
+function saveFile(name,blob){ const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000); }
+const CSV_TYPE={type:"text/csv;charset=utf-8"};
+function csvBlob(rows){ return new Blob(["﻿"+toCSV(rows)],CSV_TYPE); }
+function loadXLSX(){ return window.XLSX?Promise.resolve():new Promise((ok,ng)=>{const t=document.createElement("script"); t.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; t.onload=ok; t.onerror=ng; document.head.appendChild(t);}); }
+async function xlsxBlob(){
+  await loadXLSX();
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(csvRows()),"半荘ごと");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(settleRows()),"精算");
+  return new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
+function lockedNote(what){ return `<p class="note">${what}は拡張機能です。上の欄に解放コードを入れると使えます。</p>`; }
+function viewUnlock(){
+  if(unlocked()) return `<section class="card"><h2>拡張機能</h2><p class="note">バックアップ・条件の保存・CSV/Excel の書き出しが使えます。</p></section>`;
+  return `<section class="card"><h2>拡張機能</h2>
+    <p class="note">バックアップ・条件の保存・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
+    <div class="row"><input id="codeIn" placeholder="HN-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1"><button class="primary" id="codeOk">開く</button></div>
+    <span class="warn" id="codeMsg"></span></section>`;
+}
+function viewSettings(){
+  const easy=db.settings.mode==="easy", on=unlocked();
+  const savedList=db.saved.map((sv,i)=>`<div class="item" style="cursor:default"><span>${esc(sv.name)}</span><button class="small ghost" data-sdel="${i}" aria-label="${esc(sv.name)}を消す">消す</button></div>`).join("");
+  return `${viewUnlock()}
+  <section class="card"><h2>入力のしかた</h2>
+    <div class="row"><button class="chip" data-mode="easy" aria-pressed="${easy}">かんたん</button><button class="chip" data-mode="full" aria-pressed="${!easy}">くわしい</button></div>
+    <p class="note">かんたん：ルールを選んで点数を入れるだけ。くわしい：持ち点・返し・ウマ・同点の扱いも自分で決める。</p></section>
+  <section class="card"><h2>バックアップ${on?"":'<span class="lock">拡張</span>'}</h2>
+    <p class="note">記録はこの端末の中だけにあります。ファイルに保存しておけば、機種変更でも戻せます。</p>
+    ${on?`<div class="row"><button class="small primary" id="bkFile">ファイルに保存</button><span class="note" id="bkMsg"></span></div>
+    <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="bk" readonly>${esc(JSON.stringify(db))}</textarea><div class="row"><button class="small" id="bkCopy">コピー</button></div></div></details>
+    <details><summary>バックアップから戻す</summary><div class="stack" style="margin-top:8px">
+      <label class="f">バックアップのファイルを選ぶ<input type="file" id="rsFile" accept=".json,application/json"></label>
+      <textarea id="rs" placeholder="または、コピーしておいた文字を貼る"></textarea>
+      <div class="row"><button class="small" id="rsOk">読み取る</button><span class="warn" id="rsMsg"></span></div>
+      <div class="row" id="rsConfirm" hidden><span class="note" id="rsInfo"></span><button class="small primary" id="rsYes">置き換える</button></div>
+    </div></details>`:lockedNote("バックアップ")}
+  </section>
+  ${on&&db.saved.length?`<section class="card"><h2>保存した条件</h2><div class="list">${savedList}</div></section>`:""}
+  <section class="card"><h2>CSV・Excel 書き出し${on?"":'<span class="lock">拡張</span>'}</h2>
+    ${on?`<p class="note">全部の記録を出します。Excel は「半荘ごと」と「精算」の2枚のシートになります。</p>
+    <div class="row"><button class="small primary" id="xlsxFile">Excel に保存</button><button class="small" id="csvFile">CSV（半荘ごと）</button><button class="small" id="csvFile2">CSV（精算）</button></div>
+    <span class="note" id="csvMsg"></span>
+    <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="csv" readonly>${esc(toCSV(csvRows()))}</textarea><div class="row"><button class="small" id="csvCopy">コピー</button></div></div></details>`:lockedNote("書き出し")}
+  </section>
+  <section class="card"><h2>このアプリについて</h2><p class="note">広告はありません。登録も要りません。試作版のため、データの形は今後変わることがあります。作り：WhiteRasCAT</p></section>`;
+}
+function bindUnlock(){
+  const ok=document.getElementById("codeOk"); if(!ok) return;
+  ok.onclick=()=>{ if(isValidCode(document.getElementById("codeIn").value)){db.settings.unlocked=true;save();render();} else document.getElementById("codeMsg").textContent="コードが違います。入力を確かめてください"; };
+}
+function bindBackup(){
+  if(!unlocked()) return;
+  const saved="保存しました。見つからないときは下の文字のコピーを使ってください";
+  document.getElementById("bkFile").onclick=()=>{ saveFile(`hanchan-note-${stamp()}.json`,new Blob([JSON.stringify(db)],{type:"application/json"})); document.getElementById("bkMsg").textContent=saved; };
+  document.getElementById("csvFile").onclick=()=>{ saveFile(`hanchan-note-games-${stamp()}.csv`,csvBlob(csvRows())); document.getElementById("csvMsg").textContent=saved; };
+  document.getElementById("csvFile2").onclick=()=>{ saveFile(`hanchan-note-settle-${stamp()}.csv`,csvBlob(settleRows())); document.getElementById("csvMsg").textContent=saved; };
+  document.getElementById("xlsxFile").onclick=async()=>{ const m=document.getElementById("csvMsg"); try{ saveFile(`hanchan-note-${stamp()}.xlsx`,await xlsxBlob()); m.textContent=saved; }catch(e){ m.textContent="Excel の準備に失敗しました。電波のある所でもう一度試すか、CSV を使ってください"; } };
+  copyBtn("bkCopy","bk","bkMsg"); copyBtn("csvCopy","csv","csvMsg");
+  let pending=null;
+  const read=text=>{ const msg=document.getElementById("rsMsg"), box=document.getElementById("rsConfirm"); msg.textContent=""; box.hidden=true;
+    try{ const d=JSON.parse(text); if(!isBackup(d)) throw 0; pending=d;
+      document.getElementById("rsInfo").textContent=`${d.sessions.length}件のセッションが入っています。いまの記録と置き換えます。`; box.hidden=false; }
+    catch(e){ msg.textContent="読み取れませんでした。バックアップのファイルか、コピーした文字を全部入れてください"; } };
+  document.getElementById("rsOk").onclick=()=>read(document.getElementById("rs").value);
+  document.getElementById("rsFile").onchange=async e=>{ const f=e.target.files[0]; if(f) read(await f.text()); };
+  document.getElementById("rsYes").onclick=()=>{ if(!pending) return;
+    db={...pending,saved:pending.saved||[],sample:false,settings:{mode:"easy",...pending.settings,unlocked:true,noticeDone:true}}; save(); render(); };
+  document.querySelectorAll("[data-sdel]").forEach(b=>b.onclick=()=>{db.saved.splice(Number(b.dataset.sdel),1);save();render();});
+}
+function copyBtn(btn,area,msg){document.getElementById(btn).onclick=async()=>{const t=document.getElementById(area);try{await navigator.clipboard.writeText(t.value);document.getElementById(msg).textContent="コピーしました";}catch(e){t.select();document.getElementById(msg).textContent="選択しました。長押しでコピーしてください";}};}
+function bindSettings(){
+  document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{db.settings.mode=b.dataset.mode;save();render();});
+  bindUnlock(); bindBackup();
+}
+
+(async()=>{
+  db=await load();
+  render();
+  try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+})();
+</script>
