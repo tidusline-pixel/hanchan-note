@@ -315,7 +315,9 @@ function render(){
   const until=db.settings.unlockUntil, left=until?Math.ceil((until-Date.now())/864e5):0;
   const expiry = unlocked() && until && left<=14 && (left<=3||!db.settings.expirySkip) && (tab==="stats"||(tab==="sessions"&&!openSession)) ? `<div class="sample"><span>${db.settings.trial?"試用":"コード"}の期限はあと${left}日です（${new Date(until-1).toISOString().slice(0,10)}まで）。先にバックアップを保存してください</span><span class="row">${left>3?'<button class="small ghost" id="expLater">あとで</button>':""}<button class="small" id="expSave">保存する</button></span>${due?"":'<span id="bkMsg" style="flex-basis:100%"></span>'}</div>`:"";
   const undoBar = undo ? `<div class="undobar" id="undoBar"><span>${esc(undo.label)}</span><button class="small" id="undoBtn">元に戻す</button></div>`:"";
-  view.innerHTML = broken + notice + expiry + due + (tab==="free"?"":banner) + undoBar + ({stats:viewStats,sessions:viewSessions,set:viewSet,free:viewFree,players:viewPlayers,settings:viewSettings}[tab])();
+  // 前の URL で開いた人に新しい URL を知らせる。記録は URL ごとに分かれるので自動では移らない
+  const moved = location.hostname.endsWith(".github.io")&&location.hostname!=="hanchan-note.github.io" ? `<div class="sample" id="movedBar"><span>半荘ノートの URL が変わりました。<a href="https://hanchan-note.github.io/">新しい URL</a> で開き直してください。記録は自動では移らないので、バックアップを保存して、新しい URL で戻してください。</span></div>`:"";
+  view.innerHTML = moved + broken + notice + expiry + due + (tab==="free"?"":banner) + undoBar + ({stats:viewStats,sessions:viewSessions,set:viewSet,free:viewFree,players:viewPlayers,settings:viewSettings}[tab])();
   const cs=document.getElementById("clearSample"); if(cs) cs.onclick=()=>undoable("見本を消しました",()=>clearSample(db));
   const ub=document.getElementById("undoBtn"); if(ub) ub.onclick=()=>{db=JSON.parse(undo.before);undo=null;save();render();};
   const bd=document.getElementById("bkDue"); if(bd){ bd.onclick=saveBackup; document.getElementById("bkLater").onclick=()=>{db.settings.nudgeSkip=gameCount(db);save();render();}; }
