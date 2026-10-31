@@ -298,7 +298,7 @@ function render(){
   const broken = saveBroken ? `<p class="warn">記録を保存できませんでした。端末の空き容量を確かめてください。</p>`:"";
   const due = unlocked() && (tab==="stats"||(tab==="sessions"&&!openSession)) && backupDue(db) ? `<div class="sample"><span>ファイルに保存していない記録が ${unsavedGames(db)}半荘あります</span><span class="row"><button class="small ghost" id="bkLater">あとで</button><button class="small" id="bkDue">保存する</button></span><span id="bkMsg" style="flex-basis:100%"></span></div>`:"";
   const until=db.settings.unlockUntil, left=until?Math.ceil((until-Date.now())/864e5):0;
-  const expiry = unlocked() && until && left<=14 && (left<=3||!db.settings.expirySkip) && (tab==="stats"||(tab==="sessions"&&!openSession)) ? `<div class="sample"><span>コードの期限はあと${left}日です（${new Date(until-1).toISOString().slice(0,10)}まで）。先にバックアップを保存してください</span><span class="row">${left>3?'<button class="small ghost" id="expLater">あとで</button>':""}<button class="small" id="expSave">保存する</button></span>${due?"":'<span id="bkMsg" style="flex-basis:100%"></span>'}</div>`:"";
+  const expiry = unlocked() && until && left<=14 && (left<=3||!db.settings.expirySkip) && (tab==="stats"||(tab==="sessions"&&!openSession)) ? `<div class="sample"><span>${db.settings.trial?"試用":"コード"}の期限はあと${left}日です（${new Date(until-1).toISOString().slice(0,10)}まで）。先にバックアップを保存してください</span><span class="row">${left>3?'<button class="small ghost" id="expLater">あとで</button>':""}<button class="small" id="expSave">保存する</button></span>${due?"":'<span id="bkMsg" style="flex-basis:100%"></span>'}</div>`:"";
   const undoBar = undo ? `<div class="undobar" id="undoBar"><span>${esc(undo.label)}</span><button class="small" id="undoBtn">元に戻す</button></div>`:"";
   view.innerHTML = broken + notice + expiry + due + (tab==="free"?"":banner) + undoBar + ({stats:viewStats,sessions:viewSessions,set:viewSet,free:viewFree,players:viewPlayers,settings:viewSettings}[tab])();
   const cs=document.getElementById("clearSample"); if(cs) cs.onclick=()=>undoable("見本を消しました",()=>clearSample(db));
@@ -974,9 +974,10 @@ const howtoHTML=()=>`<section class="card" id="howto"><div class="row between"><
 function lockedNote(what){ return `<p class="note">${what}は拡張機能です。上の欄に解放コードを入れると使えます。</p>`; }
 function viewUnlock(){
   const until=db.settings.unlockUntil;
-  if(unlocked()) return `<section class="card"><h2>拡張機能</h2><p class="note">メンバーの人数の上限がなくなり、バックアップ・条件の保存・CSV/Excel の書き出しが使えます。${until?`<b>${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b>`:""}</p></section>`;
+  if(unlocked()&&!db.settings.trial) return `<section class="card"><h2>拡張機能</h2><p class="note">メンバーの人数の上限がなくなり、バックアップ・条件の保存・CSV/Excel の書き出しが使えます。${until?`<b>${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b>`:""}</p></section>`;
   return `<section class="card"><h2>拡張機能</h2>
-    ${db.settings.unlocked&&until?`<p class="warn">コードの期限が切れました。記録はそのまま残っていて、見ることも入れることもできます。</p>`:""}
+    ${unlocked()?`<p class="note"><b>試用中です。${new Date(until-1).toISOString().slice(0,10)} まで使えます。</b></p>`:db.settings.unlocked&&until?`<p class="warn">${db.settings.trial?"試用":"コード"}の期限が切れました。記録はそのまま残っていて、見ることも入れることもできます。</p>`:""}
+    ${canTrial(db.settings)?`<div class="row"><button class="small primary" id="trialOk">${TRIAL_DAYS}日試す</button><span class="note">コードなしで全部使えます。1回だけです。</span></div>`:""}
     <p class="note">メンバーを${FREE_PLAYERS+1}人以上登録でき、バックアップ・条件の保存・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
     <div class="row"><input id="codeIn" placeholder="コードを貼り付け" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" style="flex:1"><button class="primary" id="codeOk">開く</button></div>
     <span class="warn" id="codeMsg"></span></section>`;
@@ -1024,7 +1025,7 @@ function viewSettings(){
   ${viewUnlock()}
   <section class="card"><h2>バックアップ${on?"":'<span class="lock">拡張</span>'}</h2>
     <p class="note">記録はこの端末の中だけにあります。ファイルに保存しておけば、機種変更でも戻せます。</p>
-    ${!on&&db.settings.unlocked&&db.settings.unlockUntil&&!db.settings.lastSaveDone?`<p class="note">コードの期限が切れたあとも記録を外に残せるよう、最後の1回だけ保存できます。</p><div class="row"><button class="small primary" id="bkLast">最後の1回を保存</button><span class="note" id="bkMsg"></span></div>`:""}
+    ${!on&&db.settings.unlocked&&db.settings.unlockUntil&&!db.settings.lastSaveDone?`<p class="note">期限が切れたあとも記録を外に残せるよう、最後の1回だけ保存できます。</p><div class="row"><button class="small primary" id="bkLast">最後の1回を保存</button><span class="note" id="bkMsg"></span></div>`:""}
     ${on?`<p class="note">前回の保存：${db.settings.backupAt?fmtAt(db.settings.backupAt):"まだありません"}（保存していない記録 ${unsavedGames(db)}半荘）。iPhone は「ファイルに保存」を押して、出てきた画面で「"ファイル"に保存」を選びます。</p>`:""}
     ${on?`<div class="row"><button class="small primary" id="bkFile">ファイルに保存</button><span class="note" id="bkMsg"></span></div>
     <label class="f">保存の声かけ<select id="nudge">${[[3,"3半荘ごと"],[5,"5半荘ごと"],[10,"10半荘ごと"],[30,"30半荘ごと"],[0,"声をかけない"]].map(([v,l])=>`<option value="${v}" ${(db.settings.nudgeEvery??NUDGE_DEFAULT)===v?"selected":""}>${l}</option>`).join("")}</select></label>
@@ -1043,9 +1044,10 @@ function viewSettings(){
   <section class="card"><h2>このアプリについて</h2><p class="note">${ADS_ON?"広告は成績タブの下にだけ出ます。拡張機能を開くと消えます。":"広告はありません。"}登録は要りません。試作版のため、データの形は今後変わることがあります。</p><a class="note" href="privacy.html">データの扱いについて</a></section>`;
 }
 function bindUnlock(){
+  const tr=document.getElementById("trialOk"); if(tr) tr.onclick=()=>{ startTrial(db.settings,Date.now()); save(); render(); toast(`${TRIAL_DAYS}日間、拡張機能を試せます`); };
   const ok=document.getElementById("codeOk"); if(!ok) return;
   ok.onclick=async()=>{ const r=await verifyCode(document.getElementById("codeIn").value);
-    if(r.ok){ db.settings.unlocked=true; db.settings.unlockUntil=r.until; delete db.settings.lastSaveDone; delete db.settings.expirySkip; save(); render(); return; }
+    if(r.ok){ db.settings.unlocked=true; db.settings.unlockUntil=r.until; delete db.settings.lastSaveDone; delete db.settings.expirySkip; delete db.settings.trial; save(); render(); return; }
     document.getElementById("codeMsg").textContent=r.expired?"このコードは期限が切れています":"コードが違います。入力を確かめてください"; };
 }
 function bindBackup(){

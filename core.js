@@ -105,6 +105,10 @@ function parseUma(v,mode){
   return u.map(n=>n===0?0:n);
 }
 const umaHelp=mode=>mode===4?"ウマは 5-10、5,10、10,5,-5,-10 のどれかの形で入れてください（合計は0）":"ウマは 20 か 20,0,-20 の形で入れてください（合計は0）";
+// 拡張の試用。1回だけで、コードを入れたことがある人には出さない。終わり方は期限つきのコードと同じ
+const TRIAL_DAYS=30;
+const canTrial=s=>!s.unlocked&&!s.trialUsed;
+function startTrial(s,now){ if(!canTrial(s)) return false; Object.assign(s,{unlocked:true,unlockUntil:now+TRIAL_DAYS*864e5,trial:true,trialUsed:true}); return true; }
 // 見本が残っているか。見本の回に半荘を足した人の分は本人の記録として残す
 function hasSample(d){ return (d.sessions||[]).some(s=>s.sample)||(d.players||[]).some(p=>p.sample); }
 function clearSample(d){
@@ -368,4 +372,4 @@ function backupDue(d){
   return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={TRIAL_DAYS,canTrial,startTrial,swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
