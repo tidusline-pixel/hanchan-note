@@ -17,9 +17,11 @@ function scoreGame(scores, rule, order){
   const ids = Object.keys(scores);
   const n = ids.length;
   const total = ids.reduce((s,id)=>s+Number(scores[id]||0),0);
-  const expected = rule.start*n;
+  // rule.direct はポイントをそのまま入れる形。合計は0で、ウマ・オカは足さない
+  const direct = !!rule.direct;
+  const expected = direct ? 0 : rule.start*n;
   const sorted = ids.slice().sort((a,b)=> (scores[b]-scores[a]) || ((order||ids).indexOf(a)-(order||ids).indexOf(b)));
-  const oka = (rule.ret-rule.start)*n/1000;
+  const oka = direct ? 0 : (rule.ret-rule.start)*n/1000;
   const res = {};
   let i=0;
   while(i<n){
@@ -32,7 +34,7 @@ function scoreGame(scores, rule, order){
         let u=0,o=0; for(let m=i;m<=j;m++){u+=rule.uma[m]||0; if(m===0)o+=oka;}
         umaPart=u/(j-i+1); okaPart=o/(j-i+1); rank=(i+j)/2+1; best=i+1; worst=j+1;
       }else{ umaPart=rule.uma[k]||0; okaPart=k===0?oka:0; rank=k+1; best=worst=k+1; }
-      res[id]={rank, best, worst, point: round1((scores[id]-rule.ret)/1000 + umaPart + okaPart)};
+      res[id]={rank, best, worst, point: round1(direct ? scores[id]/1000 : (scores[id]-rule.ret)/1000 + umaPart + okaPart)};
     }
     i=j+1;
   }
@@ -125,6 +127,21 @@ function backupSummary(d){
   const sets=d.sessions||[], free=(d.free&&d.free.games)||[], dates=[...sets.map(s=>s.date),...free.map(g=>g.date)].sort();
   return {sets:sets.length, setGames:sets.reduce((a,s)=>a+s.games.length,0), freeGames:free.length, players:(d.players||[]).length, rules:(d.rules||[]).length, last:dates[dates.length-1]||"",
     code:fnv1a(JSON.stringify([d.players||[],sets,free,d.rules||[]])).toString(36).toUpperCase()};
+}
+
+// 無料で登録できるメンバーの数。見本の人は数えない。上限を超えたデータ（バックアップから戻した分など）も使えて、止めるのは追加だけ
+const FREE_PLAYERS=5;
+function canAddPlayer(d){ return !!(d.settings&&d.settings.unlocked) || (d.players||[]).filter(p=>!p.sample&&!p.guest).length<FREE_PLAYERS; }
+// 1回だけの人。使ったときだけ登録し、上限には数えない。同じゲストは別の日でも同じ1人になる
+const GUESTS=["guest1","guest2","guest3"];
+function ensureGuest(d,id){ if(GUESTS.includes(id)&&!d.players.some(p=>p.id===id)) d.players.push({id,name:"ゲスト"+id.slice(5),color:"#8a8f8a",guest:true}); }
+
+// メンバーを最近打った順に並べる。前回のメンバーを先頭に、一度も打っていない人は登録順で最後に
+function playersByRecent(d){
+  const ss=(d.sessions||[]).slice().reverse().sort((a,b)=>b.date.localeCompare(a.date));
+  const ids=[...new Set([...((d.settings&&d.settings.lastMembers)||[]),...ss.flatMap(s=>s.members)])];
+  const by=id=>(d.players||[]).find(p=>p.id===id);
+  return [...ids.map(by).filter(Boolean),...(d.players||[]).filter(p=>!ids.includes(p.id))];
 }
 
 // セッションの一覧：セットの会とフリーの日を1本に並べる。保存の形は変えず、見るときだけ混ぜる
@@ -253,4 +270,4 @@ function backupDue(d){
   return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};

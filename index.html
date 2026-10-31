@@ -59,6 +59,7 @@ nav.tabs button{white-space:nowrap;overflow:hidden}
 @media (max-width:350px){nav.tabs{padding-inline:2px}nav.tabs button{font-size:10px;letter-spacing:-.04em}}
 .seg{display:flex;gap:6px}.seg .chip{flex:1;padding:0 6px}
 .tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:6px;background:var(--accent-weak);color:var(--accent);vertical-align:1px}
+.nextrow td{color:var(--mute)}
 .tag.set{background:transparent;border:1px solid var(--line);color:var(--mute)}
 .undobar{position:fixed;left:16px;right:16px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:7;max-width:688px;margin:0 auto;background:var(--fg);color:var(--bg);border-radius:12px;padding:6px 8px 6px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
 .undobar button{min-height:40px;background:transparent;color:inherit;border-color:currentColor}
@@ -212,6 +213,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{tab=b.dat
 
 // 消す・直すは確認を出さず、8秒だけ「元に戻す」を出す。戻すのは操作の前の記録全体
 let undo=null, undoTimer=null;
+const askDel=msg=>db.settings.delAsk===false||confirm(msg);
 function undoable(label,fn){
   const before=JSON.stringify(db);
   fn(); save(); undo={label,before};
@@ -224,7 +226,7 @@ function render(){
   charts.forEach(c=>c.destroy()); charts=[];
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab));
   const banner = db.sample ? `<div class="sample"><span>いま入っているのは見本のデータです</span><button class="small" id="clearSample">見本を消して始める</button></div>`:"";
-  const notice = db.settings.noticeDone ? "" : `<div class="sample"><span>記録はこの端末の中だけに残ります。iPhone はホーム画面に追加して使ってください。機種変更やブラウザのデータ削除で消えるので、残したいときはバックアップ（拡張機能）を使ってください。</span><button class="small" id="noticeOk">わかった</button></div>`;
+  const notice = db.settings.noticeDone ? "" : `<div class="sample"><span>記録はこの端末の中だけに残ります。iPhone はホーム画面に追加して使ってください。機種変更やブラウザのデータ削除で消えるので、残したいときはバックアップ（拡張機能）を使ってください。使い方は設定にあります。</span><button class="small" id="noticeOk">わかった</button></div>`;
   const broken = saveBroken ? `<p class="warn">記録を保存できませんでした。端末の空き容量を確かめてください。</p>`:"";
   const due = unlocked() && (tab==="stats"||(tab==="sessions"&&!openSession)) && backupDue(db) ? `<div class="sample"><span>ファイルに保存していない記録が ${unsavedGames(db)}半荘あります</span><span class="row"><button class="small ghost" id="bkLater">あとで</button><button class="small" id="bkDue">保存する</button></span></div>`:"";
   const undoBar = undo ? `<div class="undobar" id="undoBar"><span>${esc(undo.label)}</span><button class="small" id="undoBtn">元に戻す</button></div>`:"";
@@ -247,6 +249,7 @@ function showAd(){
 /* --- 成績 --- */
 function allRates(){ return [...new Set([...db.sessions.map(s=>Number(s.rule.rate)),...freeState().games.map(g=>Number(g.rule.rate))])].sort((a,b)=>a-b); }
 function allTags(){ return [...new Set(db.sessions.flatMap(s=>s.tags||[]))]; }
+const PICK_SHOW=6, fOpen={};
 // 着順は人数が違うと比べられないので、四麻と三麻に分けて出す
 const statModes=sel=>[...new Set(sel.map(s=>s.rule.mode))].sort((a,b)=>b-a);
 const modeName=m=>m===3?"三麻":"四麻";
@@ -265,16 +268,20 @@ function viewStats(){
   const st=playerStats(sel,n);
   const ids=Object.keys(st).sort((a,b)=>st[b].yen-st[a].yen);
   const chipRow=(arr,key,label)=>arr.map(v=>`<button class="chip" data-f="${key}" data-v="${esc(v.v)}" aria-pressed="${v.on}">${esc(v.l)}</button>`).join("");
-  const pickList = db.sessions.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<label class="row" style="gap:6px"><input type="checkbox" data-pick="${s.id}" ${filter.pick.includes(s.id)?"checked":""}> <span class="num">${s.date}</span> ${esc(s.title||"")} <span class="note">${s.rule.mode}人・${s.rule.rate}P</span></label>`).join("");
+  const pickList = db.sessions.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<label class="row" style="gap:6px"><input type="checkbox" data-pick="${s.id}" ${filter.pick.includes(s.id)?"checked":""}> <span class="num">${s.date}</span> ${esc(s.title||(s.tags||[]).join(" "))} <span class="note">${s.rule.mode}人・${s.rule.rate}P</span></label>`).join("");
+  // 候補が少ないうちは並べ、多くなったら閉じた欄に入れる。何も選ばなければ全部を集計する
+  const pickRow=(label,arr,key)=>{ if(!arr.length) return ""; const on=arr.filter(v=>v.on).length, chips=chipRow([{v:"",l:"すべて",on:!on},...arr],key);
+    return arr.length<=PICK_SHOW?`<div class="row"><span class="note">${label}</span>${chips}</div>`
+      :`<details data-fopen="${key}" ${fOpen[key]?"open":""}><summary>${label}：${on?on+"つ選択中":"すべて"}（${arr.length}種類）</summary><div class="row" style="margin-top:8px">${chips}</div></details>`;};
   return `
   <section class="card" aria-labelledby="fh">
     <div class="row between"><h2 id="fh">集計の条件</h2><span class="note">${sel.length}件のセッションが対象</span></div>
     <div class="grid2"><label class="f">いつから<input type="date" id="ffrom" value="${filter.from}"></label><label class="f">いつまで<input type="date" id="fto" value="${filter.to}"></label></div>
     <div class="row">${chipRow([{v:"",l:"四麻と三麻",on:!filter.mode},{v:"4",l:"四麻",on:filter.mode==="4"},{v:"3",l:"三麻",on:filter.mode==="3"}],"mode")}</div>
     <div class="row">${chipRow([{v:"",l:"すべて",on:!filter.kind},{v:"free",l:"フリー",on:filter.kind==="free"},{v:"set",l:"セット",on:filter.kind==="set"}],"kind")}</div>
-    <div class="row"><span class="note">レート</span>${chipRow(allRates().map(r=>({v:r,l:rateName(r),on:filter.rates.includes(r)})),"rates")}</div>
-    <div class="row"><span class="note">場所</span>${chipRow(allTags().map(t=>({v:t,l:t,on:filter.tags.includes(t)})),"tags")}</div>
-    <div class="row"><span class="note">メンバーで絞る（選んだ人が全員いた回だけ）</span>${chipRow(db.players.map(p=>({v:p.id,l:p.name,on:filter.members.includes(p.id)})),"members")}</div>
+    ${pickRow("レート",allRates().map(r=>({v:r,l:rateName(r),on:filter.rates.includes(r)})),"rates")}
+    ${pickRow("場所",allTags().map(t=>({v:t,l:t,on:filter.tags.includes(t)})),"tags")}
+    ${pickRow("メンバー（選んだ人が全員いた回だけ）",playersByRecent(db).filter(p=>!p.guest).map(p=>({v:p.id,l:p.name,on:filter.members.includes(p.id)})),"members")}
     <details ${filter.pick.length?"open":""}><summary>セッションを選んで集計する（${filter.pick.length?filter.pick.length+"件選択中":"選ばなければ全部"}）</summary><div class="stack" style="margin-top:8px">${pickList||'<span class="note">記録がまだありません</span>'}</div></details>
     <div class="row between">
       <div class="row">${db.saved.map((sv,i)=>`<button class="chip" data-load="${i}">${esc(sv.name)}</button>`).join("")}</div>
@@ -310,9 +317,11 @@ function bindStats(){
   document.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{
     const k=b.dataset.f, v=b.dataset.v;
     if(k==="mode"||k==="kind"){filter[k]=v;}
+    else if(v==="") filter[k]=[];
     else{ const val = k==="rates"?Number(v):v; const a=filter[k]; const i=a.indexOf(val); i>=0?a.splice(i,1):a.push(val); }
     upd();
   });
+  document.querySelectorAll("[data-fopen]").forEach(d=>d.ontoggle=()=>{fOpen[d.dataset.fopen]=d.open;});
   document.querySelectorAll("[data-pick]").forEach(c=>c.onchange=()=>{const id=c.dataset.pick;const i=filter.pick.indexOf(id); c.checked? (i<0&&filter.pick.push(id)) : (i>=0&&filter.pick.splice(i,1)); upd();});
   document.getElementById("freset").onclick=()=>{filter={from:"",to:"",mode:"",rates:[],tags:[],members:[],pick:[]};upd();};
   document.getElementById("fsave").onclick=()=>{
@@ -357,7 +366,7 @@ function viewSessions(){
     ${seg("kind",[["all","すべて"],["free","フリー"],["set","セット"]],logKind)}
     ${seg("lview",[["list","一覧"],["calendar","カレンダー"]],cal?"calendar":"list")}
     <div class="row between"><span class="note">${sum.count}回・${sum.games}半荘</span><b class="free-sum ${cls(sum.total)}">${fmtP(sum.total)}</b></div>
-    ${sum.unknown?`<div class="row between"><span class="note">自分が決まっていないか、自分のいないセット ${sum.unknown}回は合計に入っていません。</span><button class="small" id="toMe">自分を決める</button></div>`:""}
+    ${sum.unknown?(db.settings.me?`<p class="note">自分が入っていないセット ${sum.unknown}回は、合計に入っていません。</p>`:`<div class="row between"><span class="note">ルールのタブで自分を選ぶと、セット ${sum.unknown}回の収支もこの合計に入ります。</span><button class="small" id="toMe">自分を選ぶ</button></div>`):""}
   </section>
   ${cal?calendarHTML(es):listHTML(es)}`;
 }
@@ -401,17 +410,21 @@ function viewSet(){
     <div id="newBox" hidden class="stack"></div>
     ${recent.length?`<h3>前の回を続ける</h3><div class="list">${recent.map(entryRow).join("")}</div>`:'<p class="note">まだ記録がありません。「新しく始める」から入れてください。</p>'}</section>`;
 }
+const MEM_SHOW=8;
 const presetOf=v=>{ if(v.startsWith("r:")){const x=db.rules.find(r=>r.id===v.slice(2)); return {label:x.name,tie:"seat",...x.rule};} return RULE_PRESETS[v]; };
 function newBoxHTML(){
-  const last=db.settings.lastMembers||[];
-  return `<div class="grid2"><label class="f">日付<input type="date" id="nDate" value="${today()}"></label><label class="f">名前（任意）<input id="nTitle" placeholder="例：駅前セット"></label></div>
+  const last=db.settings.lastMembers||[], ps=playersByRecent(db).filter(p=>!p.guest);
+  const memChip=p=>`<button class="chip" data-mem="${p.id}" aria-pressed="${last.includes(p.id)}">${esc(p.name)}</button>`;
+  return `<div class="grid2"><label class="f">日付<input type="date" id="nDate" value="${today()}"></label><label class="f">場所（任意）<input id="nTags" list="tagList" placeholder="例：駅前"></label></div>
+  <datalist id="tagList">${allTags().map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
   <label class="f">ルール<select id="nPreset">${db.rules.map(x=>`<option value="r:${x.id}" ${db.settings.defaultRule===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}${Object.entries(RULE_PRESETS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
   <p class="note" id="nRuleNote"></p>
   <div class="grid3"><label class="f">千点あたり（P）<input type="number" id="nRate" value="50" inputmode="decimal"></label><label class="f">チップ1枚（P）<input type="number" id="nChip" value="0" inputmode="decimal"></label><label class="f">ゲーム代（1人・P）<input type="number" id="nFee" value="0" inputmode="numeric"></label></div>
   <details><summary>持ち点・ウマを変える</summary><div class="stack" style="margin-top:8px"><div class="grid3"><label class="f">持ち点<input type="number" id="nStart"></label><label class="f">返し<input type="number" id="nRet"></label><label class="f">ウマ（カンマ区切り）<input id="nUma"></label></div>
   <label class="f">同点のとき<select id="nTie"><option value="seat">起家に近い人を上にする</option><option value="split">ウマ・オカを分け合う</option></select></label></div></details>
-  <label class="f">場所・タグ（任意・スペース区切り）<input id="nTags" placeholder="例：雀荘A"></label>
-  <div><span class="note">メンバー（四麻は4人、三麻は3人を選ぶ）</span><div class="row" id="nMem">${db.players.map(p=>`<button class="chip" data-mem="${p.id}" aria-pressed="${last.includes(p.id)}">${esc(p.name)}</button>`).join("")||'<span class="note">先にルールのタブでメンバーを追加してください</span>'}</div></div>
+  <div><span class="note">メンバー（四麻は4人、三麻は3人を選ぶ）</span><div class="row" id="nMem">${ps.slice(0,MEM_SHOW).map(memChip).join("")||'<span class="note">先にルールのタブでメンバーを追加してください</span>'}</div>
+  ${ps.length>MEM_SHOW?`<details><summary>ほかの人（${ps.length-MEM_SHOW}人）</summary><div class="row" style="margin-top:8px">${ps.slice(MEM_SHOW).map(memChip).join("")}</div></details>`:""}
+  <div class="row" style="margin-top:8px"><span class="note">1回だけの人</span>${GUESTS.map(id=>memChip({id,name:"ゲスト"+id.slice(5)})).join("")}</div></div>
   <button class="primary wide" id="nOk">始める</button><span class="warn" id="nErr"></span>`;
 }
 function bindSet(){
@@ -431,9 +444,10 @@ function bindSet(){
       const p=JSON.parse(JSON.stringify(presetOf(document.getElementById("nPreset").value)));
       p.rate=Number(document.getElementById("nRate").value)||0; p.chipRate=Number(document.getElementById("nChip").value)||0; p.fee=Number(document.getElementById("nFee").value)||0;
       p.start=Number(document.getElementById("nStart").value)||p.start;p.ret=Number(document.getElementById("nRet").value)||p.ret;
-      const u=document.getElementById("nUma").value.split(/[,、\s]+/).filter(Boolean).map(parseSigned); if(u.length===p.mode&&!u.includes(null))p.uma=u; p.tie=document.getElementById("nTie").value;
+      const u=document.getElementById("nUma").value.split(/[,、\s]+/).filter(Boolean).map(parseSigned); if(u.length===p.mode&&!u.includes(null))p.uma=u; p.tie=document.getElementById("nTie").value; p.direct=!!db.settings.lastDirect;
       if(mem.length!==p.mode){document.getElementById("nErr").textContent=`${p.mode}人を選んでください（いま${mem.length}人）`;return;}
-      const s={id:uid(),date:document.getElementById("nDate").value||today(),title:document.getElementById("nTitle").value.trim(),tags:document.getElementById("nTags").value.split(/\s+/).filter(Boolean),rule:p,members:mem.slice(),games:[],chips:{}};
+      mem.forEach(id=>ensureGuest(db,id));
+      const s={id:uid(),date:document.getElementById("nDate").value||today(),title:"",tags:document.getElementById("nTags").value.split(/\s+/).filter(Boolean),rule:p,members:mem.slice(),games:[],chips:{}};
       db.sessions.push(s); db.settings.lastMembers=mem.slice(); db.sample=false; save(); openSession=s.id; render(); window.scrollTo(0,0);
     };
   };
@@ -446,20 +460,22 @@ function viewSession(s){
   const gap=Object.values(nets).reduce((a,b)=>a+b,0), chipOff=round1(chipGap(s)), fee=Number(s.rule.fee||0), hasExtra=(s.extras||[]).length>0;
   const head=s.members.map(id=>`<th>${esc(P(id).name)}</th>`).join("");
   const rows=s.games.map((g,gi)=>{const r=scoreGame(g.scores,s.rule,s.members);
-    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="note ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
+    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="note ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
   return `<section class="card">
-    <div class="row between"><button class="small ghost" id="back">← 戻る</button><span class="note">${s.rule.mode===3?"三麻":"四麻"}・持ち${s.rule.start}返し${s.rule.ret}・ウマ${s.rule.uma.join("/")}・${rateName(s.rule.rate)}</span></div>
+    <div class="row between"><button class="small ghost" id="back">← 戻る</button><span class="note">${s.rule.mode===3?"三麻":"四麻"}・${s.rule.direct?"ポイントで入力":`持ち${s.rule.start}返し${s.rule.ret}・ウマ${s.rule.uma.join("/")}`}・${rateName(s.rule.rate)}</span></div>
     <h2><span class="num">${s.date}</span> ${esc(s.title||"")}</h2>
-    <div class="tablebox"><table><thead><tr><th>半荘</th>${head}<th></th></tr></thead><tbody>${rows||""}</tbody></table></div>
-    <div class="stack"><h3 id="gHead">${editGame===null?"終局の点数を入れる":`${editGame+1}半荘目を直す`}（合計 ${(s.rule.start*s.rule.mode).toLocaleString()}点）</h3>
-      <p class="note">32 で 32000点、32.5 で 32500点。箱下は「−」を押します。</p>
-      <div class="grid2">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${sfield(`data-sc="${id}" placeholder="32"`,editGame===null?(resume.sc[s.id]||{})[id]??"":String(s.games[editGame].scores[id]/1000))}</label>`).join("")}</div>
+    <div class="tablebox"><table><thead><tr><th>半荘</th>${head}<th></th></tr></thead><tbody>${rows}${editGame===null?`<tr class="nextrow"><td>${s.games.length+1}</td>${s.members.map(()=>"<td>-</td>").join("")}<td></td></tr>`:""}</tbody></table></div>
+    <div class="stack"><h3 id="gHead">${editGame===null?`${s.games.length+1}半荘目の${s.rule.direct?"ポイント":"点数"}を入れる`:`${editGame+1}半荘目を直す`}（合計 ${s.rule.direct?"0":(s.rule.start*s.rule.mode).toLocaleString()+"点"}）</h3>
+      ${s.games.length?"":seg("input",[["score","終局の点数で入れる"],["point","ポイントで入れる"]],s.rule.direct?"point":"score")}
+      <p class="note">${s.rule.direct?"30 で +30。マイナスは「−」を押します。ウマ・オカは足さず、そのままの数で計算します。":"32 で 32000点、32.5 で 32500点。箱下は「−」を押します。"}</p>
+      <div class="grid2">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${sfield(`data-sc="${id}" placeholder="${s.rule.direct?"30":"32"}"`,editGame===null?(resume.sc[s.id]||{})[id]??"":String(s.games[editGame].scores[id]/1000))}</label>`).join("")}</div>
       <button class="small ghost" id="auto">最後の1人を自動で埋める</button>
       <button class="primary wide" id="addG">${editGame===null?"この半荘を足す":"この半荘を直す"}</button>
       ${editGame===null?"":'<button class="small ghost" id="editNo">やめる</button>'}<span class="warn" id="gErr"></span>
     </div>
   </section>
-  <section class="card"><h2>チップ（終わりに合計枚数）</h2>
+  <section class="card"><h2>チップ</h2>
+    <p class="note">半荘の終わりに、その時点の合計枚数を入れてください。</p>
     <div class="grid2">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${sfield(`data-chip="${id}"`,(s.chips||{})[id]??0)}</label>`).join("")}</div>
     <p class="note">チップ1枚 ${s.rule.chipRate}P。小数も入れられます。</p>
     ${chipOff?`<p class="warn">チップの合計が ${chipOff}枚です。0枚になるはずなので確かめてください。</p>`:""}
@@ -472,9 +488,9 @@ function viewSession(s){
     <div class="list">${pay.map(x=>`<div class="item" style="cursor:default"><span>${esc(P(x.from).name)} → ${esc(P(x.to).name)}</span><b class="num">${x.yen.toLocaleString()}P</b></div>`).join("")||'<span class="note">まだ精算はありません</span>'}</div>
     ${fee?`<p class="note">ゲーム代は1人 ${fee.toLocaleString()}P。店へ払う分なので、人の間の精算には入れず、収支からだけ引いています。</p>`:""}
     ${gap?`<p class="warn">やり取りの合計が ${gap.toLocaleString()}Pずれています。チップやその他の項目の回数を確かめてください。</p>`:""}
-    <details><summary>日付・名前・ルールを直す</summary><div class="stack" style="margin-top:8px">
-      <div class="grid2"><label class="f">日付<input type="date" id="sDate" value="${s.date}"></label><label class="f">名前<input id="sTitle" value="${esc(s.title||"")}"></label></div>
-      <label class="f">場所・タグ（スペース区切り）<input id="sTags" value="${esc((s.tags||[]).join(" "))}"></label>
+    <details><summary>日付・場所・ルールを直す</summary><div class="stack" style="margin-top:8px">
+      <div class="grid2"><label class="f">日付<input type="date" id="sDate" value="${s.date}"></label><label class="f">場所<input id="sTags" value="${esc((s.tags||[]).join(" "))}"></label></div>
+      ${s.title?`<label class="f">名前（前に入れた分）<input id="sTitle" value="${esc(s.title)}"></label>`:`<input type="hidden" id="sTitle" value="">`}
       <div class="grid3"><label class="f">千点あたり（P）<input inputmode="decimal" id="sRate" value="${s.rule.rate}"></label><label class="f">チップ1枚（P）<input inputmode="decimal" id="sChipR" value="${s.rule.chipRate}"></label><label class="f">ゲーム代（P）<input inputmode="decimal" id="sFee" value="${s.rule.fee||0}"></label></div>
       <div class="grid3"><label class="f">持ち点<input inputmode="numeric" id="sStart" value="${s.rule.start}"></label><label class="f">返し<input inputmode="numeric" id="sRet" value="${s.rule.ret}"></label><label class="f">ウマ<input id="sUma" value="${s.rule.uma.join(",")}"></label></div>
       <button class="small primary" id="sSave">直す</button><span class="warn" id="sErr"></span>
@@ -516,19 +532,20 @@ function bindSession(){
   document.getElementById("auto").onclick=()=>{const empty=inputs.filter(i=>i.value.trim()==="");if(empty.length!==1){document.getElementById("gErr").textContent="空いている欄が1つのときに使えます";return;}
     const vals=inputs.filter(i=>i.value.trim()!=="").map(i=>parseScore(i.value));
     if(vals.includes(null)){document.getElementById("gErr").textContent="読めない点数があります";return;}
-    empty[0].value=String((s.rule.start*s.rule.mode-vals.reduce((a,b)=>a+b,0))/1000); keepScores();};
+    empty[0].value=String(((s.rule.direct?0:s.rule.start*s.rule.mode)-vals.reduce((a,b)=>a+b,0))/1000); keepScores();};
+  document.querySelectorAll("[data-input]").forEach(b=>b.onclick=()=>{s.rule.direct=b.dataset.input==="point"; db.settings.lastDirect=s.rule.direct; save(); render();});
   document.getElementById("addG").onclick=()=>{
     if(inputs.some(i=>i.value.trim()==="")){document.getElementById("gErr").textContent="全員の点数を入れてください";return;}
     const scores=Object.fromEntries(inputs.map(i=>[i.dataset.sc,parseScore(i.value)]));
     if(Object.values(scores).includes(null)){document.getElementById("gErr").textContent="読めない点数があります";return;}
     const r=scoreGame(scores,s.rule,s.members);
-    if(!r.ok){document.getElementById("gErr").textContent=`合計が${r.total.toLocaleString()}点です（${r.expected.toLocaleString()}点のはず）`;return;}
+    if(!r.ok){document.getElementById("gErr").textContent=s.rule.direct?`合計が${fmtPt(r.total/1000)}です（0のはず）`:`合計が${r.total.toLocaleString()}点です（${r.expected.toLocaleString()}点のはず）`;return;}
     if(editGame!==null){ const i=editGame; editGame=null; undoable("半荘を直しました",()=>{s.games[i].scores=scores;}); return; }
     s.games.push({scores}); db.sample=false; delete resume.sc[s.id]; save(); render();
   };
   const no=document.getElementById("editNo"); if(no) no.onclick=()=>{editGame=null;render();};
   document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{editGame=Number(b.dataset.edit);render();document.getElementById("gHead").scrollIntoView({block:"center"});});
-  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{editGame=null;undoable("半荘を消しました",()=>{s.games.splice(Number(b.dataset.del),1);});});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(!askDel(`${Number(b.dataset.del)+1}半荘目を消しますか？`))return; editGame=null;undoable("半荘を消しました",()=>{s.games.splice(Number(b.dataset.del),1);});});
   document.getElementById("sSave").onclick=()=>{
     const v=id=>document.getElementById(id).value, u=v("sUma").split(/[,、\s]+/).filter(Boolean).map(parseSigned), nums=["sRate","sChipR","sFee","sStart","sRet"].map(id=>parseSigned(v(id)));
     if(u.length!==s.rule.mode||u.includes(null)){document.getElementById("sErr").textContent=`ウマは${s.rule.mode}つ入れてください`;return;}
@@ -639,7 +656,7 @@ function bindFree(){
   paint();
 }
 function bindFreeRows(f){
-  document.querySelectorAll("[data-fdel]").forEach(b=>b.onclick=()=>{freeEdit=null;undoable("半荘を消しました",()=>{f.games=f.games.filter(g=>g.id!==b.dataset.fdel);});});
+  document.querySelectorAll("[data-fdel]").forEach(b=>b.onclick=()=>{if(!askDel("この半荘を消しますか？"))return; freeEdit=null;undoable("半荘を消しました",()=>{f.games=f.games.filter(g=>g.id!==b.dataset.fdel);});});
   document.querySelectorAll("[data-fedit]").forEach(b=>b.onclick=()=>{const g=f.games.find(x=>x.id===b.dataset.fedit); tab="sessions"; openSession="free:"+g.date; freeEdit=g.id; render();
     const e=document.getElementById("eForm"); if(e) e.scrollIntoView({block:"center"});});
 }
@@ -692,13 +709,15 @@ function viewPlayers(){
   <div class="row"><input id="rName2" placeholder="ルールの名前（例：いつもの三麻）" style="flex:1"><button class="small primary" id="rSave2">このルールを保存</button></div>
   <span class="warn" id="rErr"></span></section>
   <section class="card"><h2>メンバー</h2>
-  <div class="list">${db.players.map(p=>`<div class="item" style="cursor:default"><span><span class="dot" style="background:${p.color}"></span>${esc(p.name)}<span class="note">　${db.sessions.filter(s=>s.members.includes(p.id)).length}回参加</span></span><button class="chip" data-me="${p.id}" aria-pressed="${me===p.id}">自分</button></div>`).join("")||'<p class="note">まだ誰もいません</p>'}</div>
+  <div class="list">${db.players.filter(p=>!p.guest).map(p=>`<div class="item" style="cursor:default"><span><span class="dot" style="background:${p.color}"></span>${esc(p.name)}<span class="note">　${db.sessions.filter(s=>s.members.includes(p.id)).length}回参加</span></span><span class="row" style="flex-wrap:nowrap">${db.sessions.some(s=>s.members.includes(p.id))?"":`<button class="small ghost" data-pdel="${p.id}" aria-label="${esc(p.name)}を消す">消す</button>`}<button class="chip" data-me="${p.id}" aria-pressed="${me===p.id}">自分</button></span></div>`).join("")||'<p class="note">まだ誰もいません</p>'}</div>
   <p class="note">「自分」を決めると、セットの収支もセッションの合計とカレンダーに入ります。</p>
-  <div class="row"><input id="pName" placeholder="名前" style="flex:1"><button class="primary" id="pAdd">メンバーを追加</button></div></section>`;
+  ${canAddPlayer(db)?`<div class="row"><input id="pName" placeholder="名前" style="flex:1"><button class="primary" id="pAdd">メンバーを追加</button></div>`:`<div class="row between"><span class="note">無料で登録できるメンバーは${FREE_PLAYERS}人までです。${FREE_PLAYERS+1}人目からは拡張機能です。今いる人と記録はそのまま使えます。1回だけの人は、セットを始めるときにゲストを選べます。</span><button class="small" id="pToSet">設定へ</button></div>`}</section>`;
 }
 function bindPlayers(){
-  document.getElementById("pAdd").onclick=()=>{const n=document.getElementById("pName").value.trim(); if(!n)return;
+  const add=document.getElementById("pAdd"); if(add) add.onclick=()=>{const n=document.getElementById("pName").value.trim(); if(!n)return;
     db.players.push({id:uid(),name:n,color:COLORS[db.players.length%COLORS.length]}); save(); render();};
+  const toSet=document.getElementById("pToSet"); if(toSet) toSet.onclick=()=>{tab="settings";render();window.scrollTo(0,0);};
+  document.querySelectorAll("[data-pdel]").forEach(b=>b.onclick=()=>undoable("メンバーを消しました",()=>{const id=b.dataset.pdel; db.players=db.players.filter(p=>p.id!==id); if(db.settings.me===id) db.settings.me="";}));
   document.querySelectorAll("[data-me]").forEach(b=>b.onclick=()=>{db.settings.me=db.settings.me===b.dataset.me?"":b.dataset.me;save();render();});
   document.getElementById("rSave2").onclick=()=>{const n=document.getElementById("rName2").value.trim(); if(!n){document.getElementById("rErr").textContent="ルールの名前を入れてください";return;} saveRule(n); render();};
   document.querySelectorAll("[data-ruse]").forEach(b=>b.onclick=()=>{Object.assign(freeState().rule,ruleCopy(db.rules.find(x=>x.id===b.dataset.ruse).rule));save();tab="free";render();window.scrollTo(0,0);});
@@ -751,11 +770,32 @@ async function xlsxBlob(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(settleRows()),"精算");
   return new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
 }
+// 設定の「使い方」。やりたいことから引けるように並べる
+const HOWTO=[
+ ["始める",[
+  ["ホーム画面に追加する","iPhone は Safari で開き、共有ボタンから「ホーム画面に追加」を選びます。Android は Chrome のメニューから追加します。一度開けば電波がなくても動きます。"],
+  ["自分を選ぶ","ルールのタブのメンバーで、自分の行の「自分」を押します。セットの収支も、セッションの合計とカレンダーに入ります。"],
+  ["メンバーとゲスト",`無料で登録できるメンバーは${FREE_PLAYERS}人までです。1回だけの人は、セットを始めるときにゲストを選びます。ゲストは人数に数えません。ゲスト1は別の日でも同じ1人として成績に出ます。`],
+  ["ルールを選ぶ","ルールのタブで説明を見て「フリーで使う」を押します。よく使うルールは名前をつけて保存し、「既定にする」と最初から選ばれた状態で出ます。"]]],
+ ["記録する",[
+  ["フリーの結果を出す","着順を選び、点数を入れて「記録する」を押します。30 で 30000点、箱下は「−」です。同卓の人は入れません。"],
+  ["セットを始める","セットのタブの「＋ 新しく始める」で、ルールとメンバーを選んで「始める」を押します。あとは半荘ごとに「この半荘を足す」で足します。"],
+  ["点数とポイントの違い","「終局の点数」は持ち点を入れ、ルールのウマ・オカを足して計算します。「ポイント」は最終の増減をそのまま入れ、合計が0になります。三麻で 30 と 20 を入れると、残りは点数なら 55、ポイントなら −50 です。切り替えられるのは、そのセットに半荘が入る前だけです。"],
+  ["チップを入れる","半荘の終わりに、その時点の合計枚数を入れます。前の数は上書きされます。全員を足すと0枚になります。"]]],
+ ["見る・直す",[
+  ["精算を見る","セットの画面の下の「精算」に、人ごとの収支と、誰が誰にいくら渡すかが出ます。半荘やチップを入れるたびに変わります。あとからはセッションのタブでその回を開きます。"],
+  ["入れた半荘を直す・消す","セットは表の「直す」「消す」を押します。フリーはセッションのタブでその日を開きます。消した直後は「元に戻す」で戻せます。"],
+  ["成績を絞る","成績のタブで、期間、四麻と三麻、レート、場所、メンバーを組み合わせて選びます。何も選ばなければ全部を集計します。"]]],
+ ["データ",[
+  ["データはどこにあるか","記録はこの端末の中だけに残ります。ブラウザのデータを消すと記録も消えます。"],
+  ["機種変更するとき","前の端末の設定で、バックアップ（拡張機能）をファイルに保存します。新しい端末で「バックアップから戻す」からそのファイルを選びます。"],
+  ["バックアップから戻す","設定の一番上でファイルを選ぶと、今の記録との見比べが出ます。確かめて戻すと、読み直して同じ内容かを確かめます。戻すのは無料です。"]]]];
+const howtoHTML=()=>`<section class="card" id="howto"><h2>使い方</h2>${HOWTO.map(([h,xs])=>`<h3>${h}</h3>${xs.map(([q,a])=>`<details><summary>${q}</summary><p class="note">${a}</p></details>`).join("")}`).join("")}</section>`;
 function lockedNote(what){ return `<p class="note">${what}は拡張機能です。上の欄に解放コードを入れると使えます。</p>`; }
 function viewUnlock(){
-  if(unlocked()) return `<section class="card"><h2>拡張機能</h2><p class="note">バックアップ・条件の保存・CSV/Excel の書き出しが使えます。</p></section>`;
+  if(unlocked()) return `<section class="card"><h2>拡張機能</h2><p class="note">メンバーの人数の上限がなくなり、バックアップ・条件の保存・CSV/Excel の書き出しが使えます。</p></section>`;
   return `<section class="card"><h2>拡張機能</h2>
-    <p class="note">バックアップ・条件の保存・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
+    <p class="note">メンバーを${FREE_PLAYERS+1}人以上登録でき、バックアップ・条件の保存・CSV/Excel の書き出しが使えるようになります。買い切りで月額はありません。販売ページは準備中です。</p>
     <div class="row"><input id="codeIn" placeholder="HN-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1"><button class="primary" id="codeOk">開く</button></div>
     <span class="warn" id="codeMsg"></span></section>`;
 }
@@ -814,6 +854,8 @@ function viewSettings(){
     <span class="note" id="csvMsg"></span>
     <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="csv" readonly>${esc(toCSV(csvRows()))}</textarea><div class="row"><button class="small" id="csvCopy">コピー</button></div></div></details>`:lockedNote("書き出し")}
   </section>
+  ${howtoHTML()}
+  <section class="card"><h2>入力</h2><label class="row" style="gap:8px"><input type="checkbox" id="delAsk" ${db.settings.delAsk===false?"":"checked"}> 半荘を消す前に確かめる</label><p class="note">外しても、消した直後は「元に戻す」で戻せます。</p></section>
   <section class="card"><h2>このアプリについて</h2><p class="note">${ADS_ON?"広告は成績タブの下にだけ出ます。拡張機能を開くと消えます。":"広告はありません。"}登録は要りません。試作版のため、データの形は今後変わることがあります。</p><a class="note" href="privacy.html">データの扱いについて</a></section>`;
 }
 function bindUnlock(){
@@ -821,6 +863,7 @@ function bindUnlock(){
   ok.onclick=()=>{ if(isValidCode(document.getElementById("codeIn").value)){db.settings.unlocked=true;save();render();} else document.getElementById("codeMsg").textContent="コードが違います。入力を確かめてください"; };
 }
 function bindBackup(){
+  document.getElementById("delAsk").onchange=e=>{db.settings.delAsk=e.target.checked;save();};
   if(!unlocked()) return;
   document.getElementById("bkFile").onclick=saveBackup;
   document.getElementById("nudge").onchange=e=>{db.settings.nudgeEvery=Number(e.target.value);save();};
