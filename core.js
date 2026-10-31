@@ -307,6 +307,16 @@ function filterSessions(sessions, f){
   });
 }
 
+// 着順ごとの回数。同着は分け合う
+function rankDist(spans,n){ return Array.from({length:n},(_,k)=>spans.reduce((a,r)=>a+(k+1>=r.best&&k+1<=r.worst?1/(r.worst-r.best+1):0),0)); }
+// 4人で回す三麻。その半荘に点数がない人が抜けた人
+const outOf=(s,g)=>s.members.find(id=>!(id in g.scores))||null;
+// 次に抜ける人。前の半荘で抜けた人の次の人で、違うときは画面で選び直す
+function nextOut(s){
+  if(s.members.length<=s.rule.mode) return null;
+  const g=s.games[s.games.length-1]; if(!g) return s.members[s.members.length-1];
+  return s.members[(s.members.indexOf(outOf(s,g))+1)%s.members.length];
+}
 // 人ごとの成績。同着はトップ・連対・ラスをその順位に含め、着順の割合は分け合う
 function playerStats(sessions, n){
   const st={};
@@ -324,7 +334,7 @@ function playerStats(sessions, n){
     p.top = p.spans.filter(r=>r.best===1).length/g;
     p.rentai = p.spans.filter(r=>r.best<=2).length/g;
     p.lastAvoid = 1 - p.spans.filter(r=>r.worst===r.n).length/g;
-    p.dist = Array.from({length:n},(_,k)=>p.spans.reduce((a,r)=>a+(k+1>=r.best&&k+1<=r.worst?1/(r.worst-r.best+1):0),0));
+    p.dist = rankDist(p.spans,n);
   });
   return st;
 }
@@ -372,4 +382,4 @@ function backupDue(d){
   return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={TRIAL_DAYS,canTrial,startTrial,swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={rankDist,outOf,nextOut,TRIAL_DAYS,canTrial,startTrial,swapPlayer,mergePlayer,parseUma,umaHelp,hasSample,clearSample,parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};

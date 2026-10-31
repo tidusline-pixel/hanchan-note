@@ -116,6 +116,10 @@ nav.tabs button[aria-current="true"]{color:var(--accent);background:var(--accent
 .chartbox{position:relative;height:220px}
 .sfield{display:flex;gap:4px;align-items:stretch}
 .sfield input{flex:1;width:100%;text-align:right;font-variant-numeric:tabular-nums}
+.chipf{display:flex;flex-wrap:wrap;gap:4px}
+.chipf .sfield{flex:1 1 120px;min-width:0}
+.steps{display:flex;gap:4px}
+.steps button{min-width:40px;min-height:44px;padding:0;border-radius:10px;font-size:14px;background:var(--accent-weak);color:var(--accent);border-color:var(--line);touch-action:manipulation}
 .sfield .pm{min-width:44px;min-height:44px;padding:0 11px;border-radius:10px;font-size:18px;line-height:1;background:var(--accent-weak);color:var(--accent);border-color:var(--line)}
 .free-out{font-size:32px;font-weight:bold;text-align:center;font-variant-numeric:tabular-nums}
 .adbox{margin-top:12px;display:grid;justify-items:center;gap:2px}
@@ -218,6 +222,7 @@ const view=document.getElementById("view");
 // スマホの数字キーには「-」が無いので、欄の横のボタンでマイナスにする
 const sfield=(attrs,val="")=>`<span class="sfield"><button type="button" class="pm" data-pm aria-label="マイナスにする">−</button><input inputmode="decimal" autocomplete="off" ${attrs} value="${esc(val)}"></span>`;
 // 画面の頭の使い方。閉じたらその画面は閉じたままにする
+const chipField=(attrs,val="")=>`<span class="chipf">${sfield(attrs,val)}<span class="steps">${[-5,-1,1,5].map(n=>`<button type="button" data-step="${n}" aria-label="${n>0?"+":"−"}${Math.abs(n)}枚">${n>0?"+":"−"}${Math.abs(n)}</button>`).join("")}</span></span>`;
 const HOW={
   sessions:["「＋ セットを記録」か「＋ フリーを記録」を押す","行を押すと開いて、直したり消したりできる","一覧とカレンダーを切り替えて見る（細かい集計は成績のタブ）"],
   set:["「＋ 新しく始める」でルールとメンバーを選ぶ","半荘ごとに点数を入れて「記録する」","終わったらチップと場代を入れて「このセッションを記録する」"],
@@ -227,6 +232,16 @@ const HOW={
 };
 const howBox=k=>`<details class="howtobox" data-howto="${k}" ${(db.settings.howClosed||{})[k]?"":"open"}><summary>【使い方】</summary><ol class="note howto">${HOW[k].map(x=>`<li>${x}</li>`).join("")}</ol></details>`;
 view.addEventListener("toggle",e=>{ const k=e.target.dataset&&e.target.dataset.howto; if(!k) return; const c=db.settings.howClosed=db.settings.howClosed||{}; if(!!c[k]===!e.target.open) return; c[k]=!e.target.open; save(); },true);
+// 欄を入れた直後に押しても、欄を離れたときの描き直しでボタンが空振りしないようにする
+view.addEventListener("mousedown",e=>{ if(e.target.closest("[data-step],[data-pm]")) e.preventDefault(); });
+view.addEventListener("click",e=>{
+  const st=e.target.closest("[data-step]"); if(!st) return;
+  e.preventDefault();
+  const i=st.closest(".chipf").querySelector("input");
+  i.value=String(Math.round(((parseSigned(i.value)||0)+Number(st.dataset.step))*10)/10);
+  i.dispatchEvent(new Event("input",{bubbles:true}));
+  i.dispatchEvent(new Event("change",{bubbles:true}));
+});
 view.addEventListener("click",e=>{
   const b=e.target.closest("[data-pm]"); if(!b) return;
   e.preventDefault();
@@ -507,7 +522,7 @@ function newBoxHTML(){
   <label class="f">同点のとき<select id="nTie"><option value="seat">上の人を選ぶ（起家に近い人）</option><option value="split">ウマ・オカを分け合う</option></select></label>
   <label class="f">千点未満の端数<select id="nRound">${roundOpts("")}</select></label>
   <label class="f" id="nDoubleBox">ダブル飛ばし<select id="nDouble">${doubleOpts("")}</select></label></div></details>
-  <div><span class="note">メンバー（四麻は4人、三麻は3人を選ぶ）</span><div class="row" id="nMem">${ps.slice(0,MEM_SHOW).map(memChip).join("")||'<span class="note">先にルール/メンバのタブでメンバーを追加してください</span>'}</div>
+  <div><span class="note">メンバー（四麻は4人、三麻は3人。4人で回す三麻は4人を選ぶ）</span><div class="row" id="nMem">${ps.slice(0,MEM_SHOW).map(memChip).join("")||'<span class="note">先にルール/メンバのタブでメンバーを追加してください</span>'}</div>
   ${ps.length>MEM_SHOW?`<details><summary>ほかの人（${ps.length-MEM_SHOW}人）</summary><div class="row" style="margin-top:8px">${ps.slice(MEM_SHOW).map(memChip).join("")}</div></details>`:""}
   <div class="row" style="margin-top:8px"><span class="note">1回だけの人</span>${GUESTS.map(id=>memChip({id,name:"ゲスト"+id.slice(5)})).join("")}</div></div>
   <button class="primary wide" id="nOk">始める</button><span class="warn" id="nErr"></span>`;
@@ -530,7 +545,7 @@ function bindSet(){
       p.rate=Number(document.getElementById("nRate").value)||0; p.chipRate=Number(document.getElementById("nChip").value)||0; p.fee=Number(document.getElementById("nFee").value)||0;
       p.start=Number(document.getElementById("nStart").value)||p.start;p.ret=Number(document.getElementById("nRet").value)||p.ret;
       const u=parseUma(document.getElementById("nUma").value,p.mode); if(!u){document.getElementById("nErr").textContent=umaHelp(p.mode);return;} p.uma=u; p.tie=document.getElementById("nTie").value; p.round=document.getElementById("nRound").value; p.tobiDouble=document.getElementById("nDouble").value; p.direct=!!db.settings.lastDirect;
-      if(mem.length!==p.mode){document.getElementById("nErr").textContent=`${p.mode}人を選んでください（いま${mem.length}人）`;return;}
+      if(mem.length!==p.mode&&!(p.mode===3&&mem.length===4)){document.getElementById("nErr").textContent=`${p.mode===3?"3人か4人":p.mode+"人"}を選んでください（いま${mem.length}人）`;return;}
       mem.forEach(id=>ensureGuest(db,id));
       const s={id:uid(),date:document.getElementById("nDate").value||today(),title:"",tags:document.getElementById("nTags").value.split(/\s+/).filter(Boolean),rule:p,members:mem.slice(),games:[],chips:{}};
       db.sessions.push(s); db.settings.lastMembers=mem.slice(); db.sample=false; save(); openSession=s.id; render(); window.scrollTo(0,0);
@@ -553,17 +568,18 @@ function viewSession(s){
   const gap=Object.values(nets).reduce((a,b)=>a+b,0), chipOff=round1(chipGap(s)), fee=Number(s.rule.fee||0), hasExtra=(s.extras||[]).length>0;
   const head=s.members.map(id=>`<th>${esc(P(id).name)}</th>`).join("");
   const rows=s.games.map((g,gi)=>{const r=scoreGame(g.scores,s.rule,g.order||s.members,g.tobiBy);
-    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="pt ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span>${g.tobiBy===id?'<br><span class="note">飛ばした</span>':""}</td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
+    return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>!r.res[id]?'<td class="note">抜け</td>':s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="pt ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span>${g.tobiBy===id?'<br><span class="note">飛ばした</span>':""}</td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
   return `<section class="card">
     ${howBox("set")}
     <div class="row between"><button class="small ghost" id="back">← 戻る</button></div>
-    <div class="rulebox" id="sRuleNow"><b>今のルール</b><br>${s.rule.direct?`${modeName(s.rule.mode)}・ポイントで入力・${rateName(s.rule.rate)}`:`${ruleLine(s.rule)}<br><span class="note">${ruleNote(s.rule)}</span>`}</div>
+    <div class="rulebox" id="sRuleNow"><b>今のルール</b><br>${s.rule.direct?`${modeName(s.rule.mode)}・ポイントで入力・${rateName(s.rule.rate)}`:`${ruleLine(s.rule)}<br><span class="note">${ruleNote(s.rule)}</span>`}${s.members.length>s.rule.mode?'<br><span class="note">4人で回す（半荘ごとに1人抜ける）</span>':""}</div>
     <h2><span class="num">${s.date}</span> ${esc(s.title||"")}</h2>
     <div class="tablebox"><table><thead><tr><th>半荘</th>${head}<th></th></tr></thead><tbody>${rows}${editGame===null?`<tr class="nextrow"><td>${s.games.length+1}</td>${s.members.map(()=>"<td>-</td>").join("")}<td></td></tr>`:""}${s.games.length?`<tr class="totalrow"><td>合計</td>${s.members.map(id=>`<td><span class="num ${cls(t[id].point)}">${fmtPt(t[id].point)}</span></td>`).join("")}<td></td></tr>`:""}</tbody></table></div>
     <div class="stack"><h3 id="gHead">${editGame===null?`${s.games.length+1}半荘目の${s.rule.direct?"ポイント":"点数"}を入れる`:`${editGame+1}半荘目を直す`}（合計 ${s.rule.direct?"0":(s.rule.start*s.rule.mode).toLocaleString()+"点"}）</h3>
       ${s.games.length?"":seg("input",[["score","終局の点数で入れる"],["point","ポイントで入れる"]],s.rule.direct?"point":"score")}
       ${s.rule.direct?`<p class="note">30 で +30。マイナスは「−」を押します。ウマ・オカは足さず、そのままの数で計算します。</p>`:unitNote(s.rule)}
-      <div class="grid2">${s.members.map(id=>{ const f=sfield(`data-sc="${id}" placeholder="${s.rule.direct?"30":s.rule.mode===4?"320":"32"}"`,editGame===null?(resume.sc[s.id]||{})[id]??"":String(s.games[editGame].scores[id]/scoreUnit(s.rule))), by=editGame===null?(resume.sc[s.id]||{})._tobi:s.games[editGame].tobiBy;
+      ${s.members.length>s.rule.mode?`<div id="sOut"><span class="note">この半荘で抜ける人</span><div class="row">${s.members.map(id=>`<button class="chip" data-out="${id}">${esc(P(id).name)}</button>`).join("")}</div></div>`:""}
+      <div class="grid2">${s.members.map(id=>{ const f=sfield(`data-sc="${id}" placeholder="${s.rule.direct?"30":s.rule.mode===4?"320":"32"}"`,editGame===null?(resume.sc[s.id]||{})[id]??"":s.games[editGame].scores[id]===undefined?"":String(s.games[editGame].scores[id]/scoreUnit(s.rule))), by=editGame===null?(resume.sc[s.id]||{})._tobi:s.games[editGame].tobiBy;
         return s.rule.tobi&&!s.rule.direct?`<div class="f"><span class="row between" style="flex-wrap:nowrap">${esc(P(id).name)}<button class="chip tiny" data-tb="${id}" aria-pressed="${by===id}" aria-label="${esc(P(id).name)}が飛ばした">飛ばした</button></span>${f}</div>`:`<label class="f">${esc(P(id).name)}${f}</label>`; }).join("")}</div>
       <button class="small ghost" id="auto">最後の1人を自動で埋める</button>
       <button class="primary wide" id="addG">${editGame===null?"記録する":"この半荘を直す"}</button>
@@ -572,7 +588,7 @@ function viewSession(s){
   </section>
   <section class="card"><h2>チップ</h2>
     <p class="note">半荘の終わりに、その時点の合計枚数を入れてください。</p>
-    <div class="grid2">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${sfield(`data-chip="${id}"`,(s.chips||{})[id]??0)}</label>`).join("")}</div>
+    <div class="stack">${s.members.map(id=>`<label class="f">${esc(P(id).name)}${chipField(`data-chip="${id}"`,(s.chips||{})[id]??0)}</label>`).join("")}</div>
     <p class="note">チップ1枚 ${s.rule.chipRate}P。小数も入れられます。</p>
     ${chipOff?`<p class="warn">チップの合計が ${chipOff}枚です。0枚になるはずなので確かめてください。</p>`:""}
   </section>
@@ -584,6 +600,7 @@ function viewSession(s){
     <div class="tablebox"><table><thead><tr><th>名前</th><th>ポイント</th><th>チップ</th>${hasExtra?"<th>その他</th>":""}<th>場代</th><th>収支</th></tr></thead><tbody>
     ${s.members.map(id=>`<tr><td><span class="dot" style="background:${P(id).color}"></span>${esc(P(id).name)}</td><td class="${cls(t[id].point)}">${fmtPt(t[id].point)}</td><td>${t[id].chips}</td>${hasExtra?`<td class="${cls(t[id].extra)}">${t[id].extra.toLocaleString()}</td>`:""}<td>${t[id].fee}</td><td class="${cls(t[id].yen)}"><b>${fmtP(t[id].yen)}</b></td></tr>`).join("")}
     </tbody></table></div>
+    ${s.games.length?`<h3>着順の回数</h3><div class="tablebox"><table id="sRanks"><thead><tr><th>名前</th>${Array.from({length:s.rule.mode},(_,k)=>`<th>${k+1}着</th>`).join("")}<th>半荘</th></tr></thead><tbody>${s.members.map(id=>`<tr><td>${esc(P(id).name)}</td>${rankDist(t[id].spans,s.rule.mode).map(x=>`<td>${round1(x)}</td>`).join("")}<td>${t[id].games}</td></tr>`).join("")}</tbody></table></div>`:""}
     <div class="list">${pay.map(x=>`<div class="item" style="cursor:default"><span>${esc(P(x.from).name)} → ${esc(P(x.to).name)}</span><b class="num">${x.yen.toLocaleString()}P</b></div>`).join("")||'<span class="note">まだ精算はありません</span>'}</div>
     ${fee||(s.venue&&s.venue.amount)?`<p class="note">場代は店へ払う分なので、人の間の精算には入れず、収支からだけ引いています。</p>`:""}
     ${gap?`<p class="warn">やり取りの合計が ${gap.toLocaleString()}Pずれています。チップやその他の項目の回数を確かめてください。</p>`:""}
@@ -629,23 +646,32 @@ function bindSession(){
   const s=db.sessions.find(x=>x.id===openSession); if(!s) return;
   bindExtras(s);
   document.getElementById("back").onclick=()=>{openSession=null;editGame=null;render();window.scrollTo(0,0);};
-  const inputs=[...document.querySelectorAll("[data-sc]")];
-  const keepScores=()=>{ if(editGame!==null) return; resume.sc[s.id]={...Object.fromEntries(inputs.map(i=>[i.dataset.sc,i.value])),_tobi:tobiPressed()}; keepResume();};
+  const all=[...document.querySelectorAll("[data-sc]")];
+  // 4人で回す三麻は抜ける人の欄を隠す。入れかけの数字は残しておく
+  let out=s.members.length<=s.rule.mode?null:editGame!==null?outOf(s,s.games[editGame]):(resume.sc[s.id]||{})._out||nextOut(s);
+  const live=()=>all.filter(i=>i.dataset.sc!==out);
+  const showOut=()=>{ all.forEach(i=>{i.closest(".f").style.display=i.dataset.sc===out?"none":"";});
+    document.querySelectorAll("[data-out]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.out===out));
+    document.querySelectorAll(`[data-tb="${out}"]`).forEach(b=>b.setAttribute("aria-pressed",false)); };
+  const keepScores=()=>{ if(editGame!==null) return; resume.sc[s.id]={...Object.fromEntries(all.map(i=>[i.dataset.sc,i.value])),_tobi:tobiPressed(),...(out?{_out:out}:{})}; keepResume();};
   const tobiPressed=()=>{ const b=document.querySelector('[data-tb][aria-pressed="true"]'); return b?b.dataset.tb:undefined; };
   document.querySelectorAll("[data-tb]").forEach(b=>b.onclick=()=>{ const on=b.getAttribute("aria-pressed")!=="true"; document.querySelectorAll("[data-tb]").forEach(x=>x.setAttribute("aria-pressed",false)); b.setAttribute("aria-pressed",on); keepScores(); });
-  inputs.forEach(i=>i.oninput=keepScores);
-  document.getElementById("auto").onclick=()=>{const empty=inputs.filter(i=>i.value.trim()==="");if(empty.length!==1){document.getElementById("gErr").textContent="空いている欄が1つのときに使えます";return;}
+  all.forEach(i=>i.oninput=keepScores);
+  document.querySelectorAll("[data-out]").forEach(b=>b.onclick=()=>{out=b.dataset.out; showOut(); keepScores();});
+  showOut();
+  document.getElementById("auto").onclick=()=>{const inputs=live(), empty=inputs.filter(i=>i.value.trim()==="");if(empty.length!==1){document.getElementById("gErr").textContent="空いている欄が1つのときに使えます";return;}
     const vals=inputs.filter(i=>i.value.trim()!=="").map(i=>parseScore(i.value,scoreUnit(s.rule)));
     if(vals.includes(null)){document.getElementById("gErr").textContent="読めない点数があります";return;}
     empty[0].value=String(((s.rule.direct?0:s.rule.start*s.rule.mode)-vals.reduce((a,b)=>a+b,0))/scoreUnit(s.rule)); keepScores();};
   document.querySelectorAll("[data-input]").forEach(b=>b.onclick=()=>{s.rule.direct=b.dataset.input==="point"; db.settings.lastDirect=s.rule.direct; save(); render();});
   document.getElementById("addG").onclick=()=>{
+    const inputs=live();
     if(inputs.some(i=>i.value.trim()==="")){document.getElementById("gErr").textContent="全員の点数を入れてください";return;}
     const scores=Object.fromEntries(inputs.map(i=>[i.dataset.sc,parseScore(i.value,scoreUnit(s.rule))]));
     if(Object.values(scores).includes(null)){document.getElementById("gErr").textContent="読めない点数があります";return;}
     const r=scoreGame(scores,s.rule,s.members);
     if(!r.ok){document.getElementById("gErr").textContent=s.rule.direct?`合計が${fmtPt(r.total/1000)}です（0のはず）`:`合計が${r.total.toLocaleString()}点です（${r.expected.toLocaleString()}点のはず）`;return;}
-    const flown=s.rule.tobi&&!s.rule.direct?s.members.filter(id=>scores[id]<=0):[];
+    const flown=s.rule.tobi&&!s.rule.direct?Object.keys(scores).filter(id=>scores[id]<=0):[];
     let tobiBy=tobiPressed();
     if(tobiBy&&flown.includes(tobiBy)){document.getElementById("gErr").textContent="0点以下の人は飛ばした人にできません";return;}
     if(tobiBy&&!flown.length){document.getElementById("gErr").textContent="0点以下の人がいません。「飛ばした」を外してください";return;}
@@ -667,7 +693,7 @@ function bindSession(){
     };
     if(!flown.length||tobiBy) return nextStep();
     box.hidden=false;
-    box.innerHTML=`<p class="unitnote"><b>0点以下の人がいます</b>：飛ばした人を押してください</p><div class="row">${s.members.filter(id=>!flown.includes(id)).map(id=>`<button class="chip" data-tbask="${id}">${esc(P(id).name)}</button>`).join("")}<button class="chip" data-tbask="">なし</button></div>`;
+    box.innerHTML=`<p class="unitnote"><b>0点以下の人がいます</b>：飛ばした人を押してください</p><div class="row">${Object.keys(scores).filter(id=>!flown.includes(id)).map(id=>`<button class="chip" data-tbask="${id}">${esc(P(id).name)}</button>`).join("")}<button class="chip" data-tbask="">なし</button></div>`;
     box.querySelectorAll("[data-tbask]").forEach(b=>b.onclick=()=>{tobiBy=b.dataset.tbask||undefined; nextStep();});
     box.scrollIntoView({block:"center"});
   };
@@ -675,7 +701,7 @@ function bindSession(){
   document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{editGame=Number(b.dataset.edit);render();document.getElementById("gHead").scrollIntoView({block:"center"});});
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{if(!askDel(`${Number(b.dataset.del)+1}半荘目を消しますか？`))return; editGame=null;undoable("半荘を消しました",()=>{s.games.splice(Number(b.dataset.del),1);});});
   const done=document.getElementById("sDone"); if(done) done.onclick=()=>{
-    if(inputs.some(i=>i.value.trim()!=="")){document.getElementById("gErr").textContent="入れかけの点数があります。先に「記録する」を押すか、消してください";document.getElementById("gErr").scrollIntoView({block:"center"});return;}
+    if(live().some(i=>i.value.trim()!=="")){document.getElementById("gErr").textContent="入れかけの点数があります。先に「記録する」を押すか、消してください";document.getElementById("gErr").scrollIntoView({block:"center"});return;}
     openSession=null; tab="sessions"; render(); window.scrollTo(0,0); toast("記録しました"); };
   document.getElementById("sVenue").onchange=e=>{const n=parseSigned(e.target.value)||0; s.venue={...s.venue,amount:Math.max(n,0)}; save(); render();};
   document.querySelectorAll("[data-vhow]").forEach(b=>b.onclick=()=>{s.venue={...s.venue,how:b.dataset.vhow}; save(); render();});
@@ -719,18 +745,25 @@ function saveRule(name){
   save();
 }
 const freeItem=g=>{const x=freeLine(g);return `<div class="item" style="cursor:default"><span>${g.rank}着 <span class="num">${g.score.toLocaleString()}点</span>${g.chips?`<span class="note"> チップ${g.chips}</span>`:""}${g.tobiWin?'<span class="note"> 飛ばした</span>':""}</span><span class="row"><b class="${cls(x.total)}">${fmtP(x.total)}</b><button class="small ghost" data-fedit="${g.id}" aria-label="この半荘を直す">直す</button><button class="small ghost" data-fdel="${g.id}" aria-label="この半荘を消す">消す</button></span></div>`;};
+// 今日の着順の回数。四麻と三麻が混ざる日は分けて出す
+function freeRanks(games){
+  const ms=[4,3].filter(m=>games.some(g=>g.rule.mode===m));
+  return ms.map(m=>`${ms.length>1?modeName(m)+" ":"今日 "}${rankDist(games.filter(g=>g.rule.mode===m).map(g=>({best:g.rank,worst:g.rank})),m).map((n,k)=>`${k+1}着${n}回`).join("・")}`).join("<br>");
+}
 function viewFree(){
   const f=freeState(), r=f.rule, day=today(), kept=resume.free;
   if(freeRank>r.mode) freeRank=1;
   const todays=f.games.filter(g=>g.date===day), sum=freeSummary(todays).total, open=freeOpen===null?!f.games.length:freeOpen;
   return `<section class="card"><div class="row between"><h2>この半荘の結果</h2><span class="note">今日 <b class="${cls(sum)}">${fmtP(sum)}</b></span></div>
+    ${todays.length?`<p class="note" id="fRanks">${freeRanks(todays)}</p>`:""}
     ${howBox("free")}
     ${seg("fmode",[[4,"四麻"],[3,"三麻"]],r.mode)}
     ${db.rules.length?`<div class="row">${db.rules.map(x=>`<button class="chip" data-rapply="${x.id}" aria-pressed="${ruleKey(x.rule)===ruleKey(r)}">${esc(x.name)}</button>`).join("")}</div>`:""}
     <div class="rulebox"><b>今のルール</b><br><span id="fRuleNow">${ruleLine(r)}</span><br><span class="note" id="fRuleNote">${ruleNote(r)}</span></div>
     ${unitNote(r)}
     <div class="seg">${Array.from({length:r.mode},(_,k)=>`<button class="chip" data-frank="${k+1}" aria-pressed="${freeRank===k+1}">${k+1}着</button>`).join("")}</div>
-    <div class="grid2"><label class="f">自分の点数${sfield(`id="fScore" placeholder="${r.mode===4?"300":"30"}"`,kept.score||"")}</label><label class="f">チップ（任意）${sfield('id="fChip" placeholder="0"',kept.chip||"")}</label></div>
+    <label class="f">自分の点数${sfield(`id="fScore" placeholder="${r.mode===4?"300":"30"}"`,kept.score||"")}</label>
+    <label class="f">チップ（任意）${chipField('id="fChip" placeholder="0"',kept.chip||"")}</label>
     ${r.tobi?`<button class="chip" id="fTobi" aria-pressed="${freeTobi}">飛ばした（+${r.tobi}）</button>`:""}
     <div class="free-out" id="fOut" aria-live="polite">-</div>
     <p class="note" id="fDetail">点数を入れると、ここに結果が出ます。</p>
@@ -812,7 +845,8 @@ function viewFreeDay(day){
   if(!gs.length){ openSession=null; freeEdit=null; return viewSessions(); }
   const x=freeSummary(gs);
   const form=g=>`<div class="stack" id="eForm"><div class="seg">${Array.from({length:4},(_,k)=>`<button class="chip" data-erank="${k+1}" aria-pressed="${g.rank===k+1}">${k+1}着</button>`).join("")}</div>
-    <div class="grid2"><label class="f">点数${sfield('id="eScore"',String(g.score/scoreUnit(g.rule)))}</label><label class="f">チップ${sfield('id="eChip"',g.chips||0)}</label></div>
+    <label class="f">点数${sfield('id="eScore"',String(g.score/scoreUnit(g.rule)))}</label>
+    <label class="f">チップ${chipField('id="eChip"',g.chips||0)}</label>
     <button class="chip" id="eTobi" aria-pressed="${!!g.tobiWin}">飛ばした</button>
     <div class="grid2"><label class="f">日付<input type="date" id="eDate" value="${g.date}"></label><label class="f">ルール<select id="eRule"><option value="">いまのまま</option>${db.rules.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("")}<option value="m4">標準の四麻</option><option value="m3">標準の三麻</option></select></label></div>
     <button class="primary wide" id="eOk">この半荘を直す</button><div class="row"><button class="small ghost" id="eNo">やめる</button><span class="warn" id="eErr"></span></div></div>`;
@@ -900,7 +934,7 @@ function bindPlayers(){
 function csvRows(){
   const rows=[["日付","名前","場所","ルール","千点あたり(P)","半荘","メンバー","点数","着順","ポイント"]];
   db.sessions.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>s.games.forEach((g,gi)=>{const r=scoreGame(g.scores,s.rule,g.order||s.members,g.tobiBy);
-    s.members.forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,gi+1,P(id).name,g.scores[id],r.res[id].rank,r.res[id].point]));}));
+    s.members.filter(id=>r.res[id]).forEach(id=>rows.push([s.date,s.title||"",(s.tags||[]).join(" "),s.rule.mode===3?"三麻":"四麻",s.rule.rate,gi+1,P(id).name,g.scores[id],r.res[id].rank,r.res[id].point]));}));
   freeDays(freeState().games).reverse().forEach(d=>d.items.forEach((g,i)=>rows.push([g.date,"フリー","",modeName(g.rule.mode),g.rule.rate,i+1,"自分",g.score,g.rank,freeLine(g).point])));
   return rows;
 }
@@ -955,6 +989,7 @@ const HOWTO=[
  ["記録する",[
   ["フリーの結果を出す","着順を選び、点数を入れて「記録する」を押します。四麻は 300、三麻は 30 で 30000点です。箱下は「−」です。同卓の人は入れません。"],
   ["セットを始める","セットのタブの「＋ 新しく始める」で、ルールとメンバーを選んで「始める」を押します。半荘ごとに「記録する」を押し、終わったら「このセッションを記録する」を押します。入れた内容はその場で保存されています。"],
+  ["4人で回す三麻","三麻のルールで4人を選んで始めると、半荘ごとに「抜ける人」を押して残りの3人の点数を入れる形になります。抜ける人は順番に送られるので、違うときだけ押し直します。"],
   ["点数の入れ方","四麻は100点棒があるので100点単位で、325 で 32500点です。三麻は千点単位で、32.5 で 32500点です。"],
   ["同点のとき","セットで同じ点数の人がいると、記録のときに上の人を聞きます。起家に近い人を押してください。ウマ・オカを分け合う形は、「持ち点・ウマを変える」で選べます。"],
   ["端数の扱い","四麻は五捨六入が最初の設定です。32500点は32、32600点は33として計算します。フリーの「ルールを変える」か、セットの「持ち点・ウマを変える」で変えられます。"],
