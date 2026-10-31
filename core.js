@@ -1,8 +1,8 @@
 /* ===== 計算のしくみ（画面と切り離してテストできるようにしてある） ===== */
 const RULE_PRESETS = {
-  m4f:{label:"四麻A（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
-  m4g:{label:"四麻B（25000持ち30000返し・ウマ5-10）", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
-  m3f:{label:"三麻C（35000持ち40000返し・ウマ20・トビ賞10）", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:200, fee:0, tie:"seat", tobi:10},
+  m4f:{label:"四麻A（25000持ち30000返し・ウマ10-30）", note:"着順の差が大きいルール。1着を取ると大きく増える", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
+  m4g:{label:"四麻B（25000持ち30000返し・ウマ5-10）", note:"着順の差が小さいルール。素の点数の差が効きやすい", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
+  m3f:{label:"三麻C（35000持ち40000返し・ウマ20・トビ賞10）", note:"三人打ち。2着は増減なしで、1着と3着に大きく差がつく", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:200, fee:0, tie:"seat", tobi:10},
   m4: {label:"四麻（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:0, fee:0},
   m4b:{label:"四麻（25000持ち25000返し・ウマ5-10）", mode:4, start:25000, ret:25000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0},
   m3: {label:"三麻（35000持ち40000返し・ウマなし）", mode:3, start:35000, ret:40000, uma:[0,0,0], rate:50, chipRate:100, fee:0},
@@ -101,6 +101,12 @@ function freeDays(games){
 function filterFree(games, f){
   if((f.tags&&f.tags.length)||(f.members&&f.members.length)||(f.pick&&f.pick.length)) return [];
   return games.filter(g=>(!f.from||g.date>=f.from)&&(!f.to||g.date<=f.to)&&(!f.mode||String(g.rule.mode)===String(f.mode))&&(!(f.rates&&f.rates.length)||f.rates.includes(Number(g.rule.rate))));
+}
+
+// ルールの説明：返しちょうどで終わったときの着順ごとの増減。オカは1着に足す
+function ruleNote(r){
+  const oka=(r.ret-r.start)*r.mode/1000, f=v=>(v>0?"+":v<0?"−":"±")+Math.abs(v);
+  return `${r.ret}点で終わったときの増減：${r.uma.map((u,i)=>`${i+1}着 ${f(u+(i===0?oka:0))}`).join("・")}${oka?`（1着はオカ${oka}込み）`:""}`;
 }
 
 // 点数の早見表：ルールごとに、点数と着順で結果（チップなし・トビ賞のやり取りは0点以下で払う分だけ・ゲーム代込み）を出す
@@ -239,11 +245,12 @@ function nextSnaps(snaps,d,now,force){
 }
 // ファイルに保存していない半荘の数
 function unsavedGames(d){ return Math.max(0,gameCount(d)-Number(d.settings.backupGames||0)); }
-// 保存の声をかけるか：3半荘たまった、または前回の保存から3日たって増えている
-function backupDue(d,now){
-  if(d.sample) return false;
-  const n=unsavedGames(d), at=d.settings.backupAt;
-  return n>=3 || (n>=1 && !!at && now-at>=3*864e5);
+// 保存の声をかけるか：設定の半荘数（既定10、0はかけない）だけ増えたとき。「あとで」を押すとそこから数え直す
+const NUDGE_DEFAULT=10;
+function backupDue(d){
+  const every=d.settings.nudgeEvery??NUDGE_DEFAULT;
+  if(d.sample || !every) return false;
+  return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};

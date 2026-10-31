@@ -226,12 +226,12 @@ function render(){
   const banner = db.sample ? `<div class="sample"><span>いま入っているのは見本のデータです</span><button class="small" id="clearSample">見本を消して始める</button></div>`:"";
   const notice = db.settings.noticeDone ? "" : `<div class="sample"><span>記録はこの端末の中だけに残ります。iPhone はホーム画面に追加して使ってください。機種変更やブラウザのデータ削除で消えるので、残したいときはバックアップ（拡張機能）を使ってください。</span><button class="small" id="noticeOk">わかった</button></div>`;
   const broken = saveBroken ? `<p class="warn">記録を保存できませんでした。端末の空き容量を確かめてください。</p>`:"";
-  const due = unlocked() && (tab==="stats"||(tab==="sessions"&&!openSession)) && backupDue(db,Date.now()) ? `<div class="sample"><span>ファイルに保存していない記録が ${unsavedGames(db)}半荘あります</span><button class="small" id="bkDue">保存する</button></div>`:"";
+  const due = unlocked() && (tab==="stats"||(tab==="sessions"&&!openSession)) && backupDue(db) ? `<div class="sample"><span>ファイルに保存していない記録が ${unsavedGames(db)}半荘あります</span><span class="row"><button class="small ghost" id="bkLater">あとで</button><button class="small" id="bkDue">保存する</button></span></div>`:"";
   const undoBar = undo ? `<div class="undobar" id="undoBar"><span>${esc(undo.label)}</span><button class="small" id="undoBtn">元に戻す</button></div>`:"";
   view.innerHTML = broken + notice + due + (tab==="free"?"":banner) + undoBar + ({stats:viewStats,sessions:viewSessions,set:viewSet,free:viewFree,players:viewPlayers,settings:viewSettings}[tab])();
   const cs=document.getElementById("clearSample"); if(cs) cs.onclick=()=>{db={players:[],sessions:[],saved:[],rules:db.rules,settings:db.settings,free:db.free};save();render();};
   const ub=document.getElementById("undoBtn"); if(ub) ub.onclick=()=>{db=JSON.parse(undo.before);undo=null;save();render();};
-  const bd=document.getElementById("bkDue"); if(bd) bd.onclick=saveBackup;
+  const bd=document.getElementById("bkDue"); if(bd){ bd.onclick=saveBackup; document.getElementById("bkLater").onclick=()=>{db.settings.nudgeSkip=gameCount(db);save();render();}; }
   const no=document.getElementById("noticeOk"); if(no) no.onclick=()=>{db.settings.noticeDone=true;save();render();};
   ({stats:bindStats,sessions:bindSessions,set:bindSet,free:bindFree,players:bindPlayers,settings:bindSettings}[tab])();
   showAd();
@@ -406,6 +406,7 @@ function newBoxHTML(){
   const last=db.settings.lastMembers||[];
   return `<div class="grid2"><label class="f">日付<input type="date" id="nDate" value="${today()}"></label><label class="f">名前（任意）<input id="nTitle" placeholder="例：駅前セット"></label></div>
   <label class="f">ルール<select id="nPreset">${db.rules.map(x=>`<option value="r:${x.id}" ${db.settings.defaultRule===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}${Object.entries(RULE_PRESETS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
+  <p class="note" id="nRuleNote"></p>
   <div class="grid3"><label class="f">千点あたり（P）<input type="number" id="nRate" value="50" inputmode="decimal"></label><label class="f">チップ1枚（P）<input type="number" id="nChip" value="0" inputmode="decimal"></label><label class="f">ゲーム代（1人・P）<input type="number" id="nFee" value="0" inputmode="numeric"></label></div>
   <details><summary>持ち点・ウマを変える</summary><div class="stack" style="margin-top:8px"><div class="grid3"><label class="f">持ち点<input type="number" id="nStart"></label><label class="f">返し<input type="number" id="nRet"></label><label class="f">ウマ（カンマ区切り）<input id="nUma"></label></div>
   <label class="f">同点のとき<select id="nTie"><option value="seat">起家に近い人を上にする</option><option value="split">ウマ・オカを分け合う</option></select></label></div></details>
@@ -420,7 +421,8 @@ function bindSet(){
     const box=document.getElementById("newBox"); box.hidden=false; box.innerHTML=newBoxHTML();
     const fill=()=>{const p=presetOf(document.getElementById("nPreset").value);
       document.getElementById("nRate").value=p.rate; document.getElementById("nChip").value=p.chipRate; document.getElementById("nFee").value=p.fee||0;
-      document.getElementById("nStart").value=p.start;document.getElementById("nRet").value=p.ret;document.getElementById("nUma").value=p.uma.join(",");document.getElementById("nTie").value=p.tie||"split";};
+      document.getElementById("nStart").value=p.start;document.getElementById("nRet").value=p.ret;document.getElementById("nUma").value=p.uma.join(",");document.getElementById("nTie").value=p.tie||"split";
+      document.getElementById("nRuleNote").innerHTML=`${p.note?esc(p.note)+"<br>":""}${ruleNote(p)}`;};
     document.getElementById("nPreset").onchange=fill; fill();
     document.getElementById("nRate").onchange=e=>{document.getElementById("nChip").value=chipFor(presetOf(document.getElementById("nPreset").value).mode,e.target.value);};
     const mem=(db.settings.lastMembers||[]).filter(id=>db.players.some(p=>p.id===id));
@@ -568,7 +570,7 @@ function viewFree(){
     <ol class="note howto"><li>四麻か三麻を選ぶ（ルールは最初に一度決めるだけ）</li><li>着順を押して、点数を入れる（30 で 30000点、5- で箱下）</li><li>「記録する」で今日の合計が出る</li></ol>
     ${seg("fmode",[[4,"四麻"],[3,"三麻"]],r.mode)}
     ${db.rules.length?`<div class="row">${db.rules.map(x=>`<button class="chip" data-rapply="${x.id}" aria-pressed="${ruleKey(x.rule)===ruleKey(r)}">${esc(x.name)}</button>`).join("")}</div>`:""}
-    <p class="note" id="fRuleNow">${ruleLine(r)}</p>
+    <p class="note"><span id="fRuleNow">${ruleLine(r)}</span><br><span id="fRuleNote">${ruleNote(r)}</span></p>
     <div class="seg">${Array.from({length:r.mode},(_,k)=>`<button class="chip" data-frank="${k+1}" aria-pressed="${freeRank===k+1}">${k+1}着</button>`).join("")}</div>
     <div class="grid2"><label class="f">自分の点数${sfield('id="fScore" placeholder="30"',kept.score||"")}</label><label class="f">チップ（任意）${sfield('id="fChip" placeholder="0"',kept.chip||"")}</label></div>
     ${r.tobi?`<button class="chip" id="fTobi" aria-pressed="${freeTobi}">飛ばした（+${r.tobi}）</button>`:""}
@@ -597,6 +599,7 @@ function bindFree(){
   const score=document.getElementById("fScore"), chip=document.getElementById("fChip");
   const paint=()=>{
     document.getElementById("fRuleNow").textContent=ruleLine(r);
+    document.getElementById("fRuleNote").textContent=ruleNote(r);
     document.getElementById("fTable").innerHTML=quickHTML(r);
     const out=document.getElementById("fOut"), sc=parseScore(score.value);
     if(sc===null){ out.textContent="-"; out.className="free-out"; return; }
@@ -680,10 +683,11 @@ function viewPlayers(){
   const me=db.settings.me, def=db.settings.defaultRule;
   return `<section class="card"><h2>保存したルール</h2>
   <p class="note">保存したルールは、フリーとセットの画面で選ぶだけで使えます。既定にしたルールは、最初から選ばれた状態で出ます。</p>
-  <div class="list">${db.rules.map(x=>`<div class="stack item" style="cursor:default;display:grid"><div><b>${esc(x.name)}</b>${def===x.id?' <span class="tag">既定</span>':""}<br><span class="meta">${ruleLine(x.rule)}</span></div>
+  <div class="list">${db.rules.map(x=>`<div class="stack item" style="cursor:default;display:grid"><div><b>${esc(x.name)}</b>${def===x.id?' <span class="tag">既定</span>':""}<br><span class="meta">${ruleLine(x.rule)}<br>${ruleNote(x.rule)}</span></div>
     <div class="row"><button class="small" data-ruse="${x.id}">フリーで使う</button><button class="small ghost" data-rdef="${x.id}">${def===x.id?"既定を外す":"既定にする"}</button><button class="small ghost" data-rdel="${x.id}">消す</button></div></div>`).join("")||'<p class="note">まだありません。下の欄で、いまのフリーのルールを保存できます。</p>'}</div>
   <h3>よくあるルール</h3>
-  <div class="list">${["m4f","m4g","m3f"].map(k=>`<div class="item" style="cursor:default"><span>${RULE_PRESETS[k].label}</span><button class="small" data-puse="${k}">フリーで使う</button></div>`).join("")}</div>
+  <div class="list">${["m4f","m4g","m3f"].map(k=>{const r=RULE_PRESETS[k];return `<div class="stack item" style="cursor:default;display:grid"><div><b>${r.label}</b><br><span class="meta">${r.note}<br>${ruleNote(r)}</span></div><div class="row"><button class="small" data-puse="${k}">フリーで使う</button></div></div>`;}).join("")}</div>
+  <details><summary>言葉の説明</summary><p class="note">持ち点：最初に持つ点数。返し：計算の基準になる点数。ウマ：着順で増減する分。オカ：持ち点と返しの差の合計で、1着がもらう分。トビ賞：0点以下で払う分。レート：千点の値打ちで、0.5は千点50P、1は千点100P。</p></details>
   <p class="note">いまのフリーのルール：${ruleLine(freeState().rule)}</p>
   <div class="row"><input id="rName2" placeholder="ルールの名前（例：いつもの三麻）" style="flex:1"><button class="small primary" id="rSave2">このルールを保存</button></div>
   <span class="warn" id="rErr"></span></section>
@@ -799,6 +803,7 @@ function viewSettings(){
     <p class="note">記録はこの端末の中だけにあります。ファイルに保存しておけば、機種変更でも戻せます。</p>
     ${on?`<p class="note">前回の保存：${db.settings.backupAt?fmtAt(db.settings.backupAt):"まだありません"}（保存していない記録 ${unsavedGames(db)}半荘）。iPhone は「ファイルに保存」を押して、出てきた画面で「"ファイル"に保存」を選びます。</p>`:""}
     ${on?`<div class="row"><button class="small primary" id="bkFile">ファイルに保存</button><span class="note" id="bkMsg"></span></div>
+    <label class="f">保存の声かけ<select id="nudge">${[[3,"3半荘ごと"],[5,"5半荘ごと"],[10,"10半荘ごと"],[30,"30半荘ごと"],[0,"声をかけない"]].map(([v,l])=>`<option value="${v}" ${(db.settings.nudgeEvery??NUDGE_DEFAULT)===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="bk" readonly>${esc(JSON.stringify(db))}</textarea><div class="row"><button class="small" id="bkCopy">コピー</button></div></div></details>
 `:lockedNote("バックアップ")}
   </section>
@@ -818,6 +823,7 @@ function bindUnlock(){
 function bindBackup(){
   if(!unlocked()) return;
   document.getElementById("bkFile").onclick=saveBackup;
+  document.getElementById("nudge").onchange=e=>{db.settings.nudgeEvery=Number(e.target.value);save();};
   const csvDone=r=>{ document.getElementById("csvMsg").textContent=r==="cancel"?"":SAVED_MSG; };
   document.getElementById("csvFile").onclick=async()=>csvDone(await saveFile(`hanchan-note-games-${stamp()}.csv`,csvBlob(csvRows())));
   document.getElementById("csvFile2").onclick=async()=>csvDone(await saveFile(`hanchan-note-settle-${stamp()}.csv`,csvBlob(settleRows())));
