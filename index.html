@@ -56,6 +56,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .chip{border-radius:999px;min-height:44px;padding:0 16px;border:1px solid var(--line);background:var(--card);font-size:15px}
 .chip[aria-pressed="true"]{background:#4f6b55;color:#fff;border-color:#4f6b55;font-weight:bold}
 .howto{margin:0;padding-left:18px}
+.howtobox summary{font-size:14px;font-weight:700;color:var(--accent);min-height:32px;display:flex;align-items:center;gap:6px}
+.howtobox summary::after{content:"閉じる";margin-left:auto;font-size:12px;font-weight:400;color:var(--mute)}
+.howtobox:not([open]) summary::after{content:"開く"}
+.howtobox .howto{margin-top:2px}
 nav.tabs button{white-space:nowrap;overflow:hidden}
 @media (max-width:350px){nav.tabs{padding-inline:2px}nav.tabs button{font-size:10px;letter-spacing:-.04em}}
 .seg{display:flex;gap:6px}.seg .chip{flex:1;padding:0 6px}
@@ -208,6 +212,16 @@ let filter={from:"",to:"",mode:"",rates:[],tags:[],members:[],pick:[]};
 const view=document.getElementById("view");
 // スマホの数字キーには「-」が無いので、欄の横のボタンでマイナスにする
 const sfield=(attrs,val="")=>`<span class="sfield"><button type="button" class="pm" data-pm aria-label="マイナスにする">−</button><input inputmode="decimal" autocomplete="off" ${attrs} value="${esc(val)}"></span>`;
+// 画面の頭の使い方。閉じたらその画面は閉じたままにする
+const HOW={
+  sessions:["「＋ セットを記録」か「＋ フリーを記録」を押す","行を押すと開いて、直したり消したりできる","一覧とカレンダーを切り替えて見る（細かい集計は成績のタブ）"],
+  set:["「＋ 新しく始める」でルールとメンバーを選ぶ","半荘ごとに点数を入れて「記録する」","終わったらチップと場代を入れて「このセッションを記録する」"],
+  free:["四麻か三麻を選ぶ（ルールは最初に一度決めるだけ）","着順を押して、点数を入れる","「記録する」で今日の合計が出る"],
+  players:["ルールを選んで「セットで使う」か「フリーで使う」を押す","一緒に打つ人を「メンバーを追加」で入れる","自分の行の「自分」を押すと、集計の対象になる"],
+  stats:["期間やレート、メンバーなどを選ぶ（何も選ばなければ全部）","下の表とグラフが選んだ条件で変わる","フリーの成績は上、セットの成績はその下に出る"],
+};
+const howBox=k=>`<details class="howtobox" data-howto="${k}" ${(db.settings.howClosed||{})[k]?"":"open"}><summary>【使い方】</summary><ol class="note howto">${HOW[k].map(x=>`<li>${x}</li>`).join("")}</ol></details>`;
+view.addEventListener("toggle",e=>{ const k=e.target.dataset&&e.target.dataset.howto; if(!k) return; const c=db.settings.howClosed=db.settings.howClosed||{}; if(!!c[k]===!e.target.open) return; c[k]=!e.target.open; save(); },true);
 view.addEventListener("click",e=>{
   const b=e.target.closest("[data-pm]"); if(!b) return;
   e.preventDefault();
@@ -289,6 +303,7 @@ function viewStats(){
       :`<details data-fopen="${key}" ${fOpen[key]?"open":""}><summary>${label}：${on?on+"つ選択中":"すべて"}（${arr.length}種類）</summary><div class="row" style="margin-top:8px">${chips}</div></details>`;};
   return `
   <section class="card" aria-labelledby="fh">
+    ${howBox("stats")}
     <div class="row between"><h2 id="fh">集計の条件</h2><span class="note">${sel.length}件のセッションが対象</span></div>
     <div class="grid2"><label class="f">いつから<input type="date" id="ffrom" value="${filter.from}"></label><label class="f">いつまで<input type="date" id="fto" value="${filter.to}"></label></div>
     <div class="row">${chipRow([{v:"",l:"四麻と三麻",on:!filter.mode},{v:"4",l:"四麻",on:filter.mode==="4"},{v:"3",l:"三麻",on:filter.mode==="3"}],"mode")}</div>
@@ -377,6 +392,7 @@ function viewSessions(){
   if(openSession) return viewSession(db.sessions.find(s=>s.id===openSession));
   const es=logEntries(db).filter(e=>logKind==="all"||e.kind===logKind), sum=logTotals(es), cal=db.settings.sessionView==="calendar";
   return `<section class="card">
+    ${howBox("sessions")}
     <div class="grid2"><button class="primary" id="goSet">＋ セットを記録</button><button class="primary" id="goFree">＋ フリーを記録</button></div>
     ${seg("kind",[["all","すべて"],["free","フリー"],["set","セット"]],logKind)}
     ${seg("lview",[["list","一覧"],["calendar","カレンダー"]],cal?"calendar":"list")}
@@ -424,7 +440,7 @@ function todaySet(){ const x=db.sessions.filter(s=>s.date===today()); return x.l
 function viewSet(){
   if(openSession) return viewSession(db.sessions.find(s=>s.id===openSession));
   const recent=logEntries(db).filter(e=>e.kind==="set").slice(0,5);
-  return `<section class="card"><div class="row between"><h2>セット</h2><button class="primary" id="newS">＋ 新しく始める</button></div>
+  return `<section class="card">${howBox("set")}<div class="row between"><h2>セット</h2><button class="primary" id="newS">＋ 新しく始める</button></div>
     <div id="newBox" hidden class="stack"></div>
     ${recent.length?`<h3>前の回を続ける</h3><div class="list">${recent.map(entryRow).join("")}</div>`:'<p class="note">まだ記録がありません。「新しく始める」から入れてください。</p>'}</section>`;
 }
@@ -483,6 +499,7 @@ function viewSession(s){
   const rows=s.games.map((g,gi)=>{const r=scoreGame(g.scores,s.rule,g.order||s.members);
     return `<tr><td>${gi+1}${r.ok?"":' <span class="warn">合計ずれ</span>'}</td>${s.members.map(id=>s.rule.direct?`<td><span class="num ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`:`<td><span class="num">${Number(g.scores[id]).toLocaleString()}</span><br><span class="pt ${cls(r.res[id].point)}">${fmtPt(r.res[id].point)}</span></td>`).join("")}<td><button class="small ghost" data-edit="${gi}" aria-label="${gi+1}半荘目を直す">直す</button> <button class="small ghost" data-del="${gi}" aria-label="${gi+1}半荘目を消す">消す</button></td></tr>`;}).join("");
   return `<section class="card">
+    ${howBox("set")}
     <div class="row between"><button class="small ghost" id="back">← 戻る</button><span class="note">${s.rule.mode===3?"三麻":"四麻"}・${s.rule.direct?"ポイントで入力":`持ち${s.rule.start}返し${s.rule.ret}・ウマ${s.rule.uma.join("/")}`}・${rateName(s.rule.rate)}</span></div>
     <h2><span class="num">${s.date}</span> ${esc(s.title||"")}</h2>
     <div class="tablebox"><table><thead><tr><th>半荘</th>${head}<th></th></tr></thead><tbody>${rows}${editGame===null?`<tr class="nextrow"><td>${s.games.length+1}</td>${s.members.map(()=>"<td>-</td>").join("")}<td></td></tr>`:""}${s.games.length?`<tr class="totalrow"><td>合計</td>${s.members.map(id=>`<td><span class="num ${cls(t[id].point)}">${fmtPt(t[id].point)}</span></td>`).join("")}<td></td></tr>`:""}</tbody></table></div>
@@ -631,7 +648,7 @@ function viewFree(){
   if(freeRank>r.mode) freeRank=1;
   const todays=f.games.filter(g=>g.date===day), sum=freeSummary(todays).total, open=freeOpen===null?!f.games.length:freeOpen;
   return `<section class="card"><div class="row between"><h2>この半荘の結果</h2><span class="note">今日 <b class="${cls(sum)}">${fmtP(sum)}</b></span></div>
-    <ol class="note howto"><li>四麻か三麻を選ぶ（ルールは最初に一度決めるだけ）</li><li>着順を押して、点数を入れる</li><li>「記録する」で今日の合計が出る</li></ol>
+    ${howBox("free")}
     ${seg("fmode",[[4,"四麻"],[3,"三麻"]],r.mode)}
     ${db.rules.length?`<div class="row">${db.rules.map(x=>`<button class="chip" data-rapply="${x.id}" aria-pressed="${ruleKey(x.rule)===ruleKey(r)}">${esc(x.name)}</button>`).join("")}</div>`:""}
     <div class="rulebox"><b>今のルール</b><br><span id="fRuleNow">${ruleLine(r)}</span><br><span class="note" id="fRuleNote">${ruleNote(r)}</span></div>
@@ -751,7 +768,8 @@ function bindFreeDay(){
 const COLORS=["#4f6b55","#2f6fb0","#c0443b","#b8892c","#7a5ea8","#2d8a8a","#c06a2b","#6b6b6b"];
 function viewPlayers(){
   const me=db.settings.me, def=db.settings.defaultRule;
-  return `<section class="card"><h2>保存したルール</h2>
+  return `<section class="card">${howBox("players")}</section>
+  <section class="card"><h2>保存したルール</h2>
   <p class="note">保存したルールは、フリーとセットの画面で選ぶだけで使えます。既定にしたルールは、最初から選ばれた状態で出ます。</p>
   <div class="list">${db.rules.map(x=>`<div class="stack item" style="cursor:default;display:grid"><div><b>${esc(x.name)}</b>${def===x.id?' <span class="tag">既定</span>':""}<br><span class="meta">${ruleLine(x.rule)}<br>${ruleNote(x.rule)}</span></div>
     <div class="row"><button class="small" data-suse="r:${x.id}">セットで使う</button><button class="small" data-ruse="${x.id}">フリーで使う</button><button class="small ghost" data-rdef="${x.id}">${def===x.id?"既定を外す":"既定にする"}</button><button class="small ghost" data-rdel="${x.id}">消す</button></div></div>`).join("")||'<p class="note">まだありません。下の欄で、いまのフリーのルールを保存できます。</p>'}</div>
