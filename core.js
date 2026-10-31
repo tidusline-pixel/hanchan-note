@@ -1,13 +1,16 @@
 /* ===== 計算のしくみ（画面と切り離してテストできるようにしてある） ===== */
 const RULE_PRESETS = {
-  m4f:{label:"四麻（25000持ち30000返し・ウマ5-10・同点は起家に近い人が上）", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0, tie:"seat"},
-  m3f:{label:"三麻（35000持ち40000返し・ウマ20・同点は起家に近い人が上）", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:250, fee:0, tie:"seat"},
+  m4f:{label:"四麻A（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
+  m4g:{label:"四麻B（25000持ち30000返し・ウマ5-10）", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
+  m3f:{label:"三麻C（35000持ち40000返し・ウマ20・トビ賞10）", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:200, fee:0, tie:"seat", tobi:10},
   m4: {label:"四麻（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:0, fee:0},
   m4b:{label:"四麻（25000持ち25000返し・ウマ5-10）", mode:4, start:25000, ret:25000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0},
   m3: {label:"三麻（35000持ち40000返し・ウマなし）", mode:3, start:35000, ret:40000, uma:[0,0,0], rate:50, chipRate:100, fee:0},
   m3u:{label:"三麻（35000持ち40000返し・ウマ15）", mode:3, start:35000, ret:40000, uma:[15,0,-15], rate:50, chipRate:100, fee:0},
 };
 const round1 = x => Math.round(x*10)/10;
+// チップ1枚の既定：千点50Pなら四麻100P・三麻200P、千点100Pなら500P
+function chipFor(mode,rate){ const r=Number(rate); return r===100?500:Math.round(r*(mode===3?4:2)); }
 
 // 1半荘の結果：scores = {pid: 点数}。席順 order は同点のとき上家を上にするか、ウマを分けるかに使う
 function scoreGame(scores, rule, order){
@@ -98,6 +101,24 @@ function freeDays(games){
 function filterFree(games, f){
   if((f.tags&&f.tags.length)||(f.members&&f.members.length)||(f.pick&&f.pick.length)) return [];
   return games.filter(g=>(!f.from||g.date>=f.from)&&(!f.to||g.date<=f.to)&&(!f.mode||String(g.rule.mode)===String(f.mode))&&(!(f.rates&&f.rates.length)||f.rates.includes(Number(g.rule.rate))));
+}
+
+// 点数の早見表：ルールごとに、点数と着順で結果（チップなし・トビ賞のやり取りは0点以下で払う分だけ・ゲーム代込み）を出す
+// 起こらない組み合わせは null。k着の点数は合計÷k を超えず、1着は持ち点を下回らない
+const QUICK_SCORES=[60,50,45,40,35,30,25,20,15,10,5,1,0,-5,-10];
+function quickTable(r){
+  const all=r.start*r.mode;
+  return QUICK_SCORES.map(k=>{ const score=k*1000;
+    return {score, cells:Array.from({length:r.mode},(_,i)=>{ const rank=i+1;
+      if(score*rank>all || (rank===1&&score<r.start)) return null;
+      return freeResult(score,rank,0,r).total; })}; });
+}
+
+// バックアップの中身のまとめ。戻す前後で見比べ、code が同じなら記録は1文字も違わない
+function backupSummary(d){
+  const sets=d.sessions||[], free=(d.free&&d.free.games)||[], dates=[...sets.map(s=>s.date),...free.map(g=>g.date)].sort();
+  return {sets:sets.length, setGames:sets.reduce((a,s)=>a+s.games.length,0), freeGames:free.length, players:(d.players||[]).length, rules:(d.rules||[]).length, last:dates[dates.length-1]||"",
+    code:fnv1a(JSON.stringify([d.players||[],sets,free,d.rules||[]])).toString(36).toUpperCase()};
 }
 
 // セッションの一覧：セットの会とフリーの日を1本に並べる。保存の形は変えず、見るときだけ混ぜる
@@ -225,4 +246,4 @@ function backupDue(d,now){
   return n>=3 || (n>=1 && !!at && now-at>=3*864e5);
 }
 
-if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,freeSummary,freeDays,filterFree,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};

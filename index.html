@@ -422,6 +422,7 @@ function bindSet(){
       document.getElementById("nRate").value=p.rate; document.getElementById("nChip").value=p.chipRate; document.getElementById("nFee").value=p.fee||0;
       document.getElementById("nStart").value=p.start;document.getElementById("nRet").value=p.ret;document.getElementById("nUma").value=p.uma.join(",");document.getElementById("nTie").value=p.tie||"split";};
     document.getElementById("nPreset").onchange=fill; fill();
+    document.getElementById("nRate").onchange=e=>{document.getElementById("nChip").value=chipFor(presetOf(document.getElementById("nPreset").value).mode,e.target.value);};
     const mem=(db.settings.lastMembers||[]).filter(id=>db.players.some(p=>p.id===id));
     box.querySelectorAll("[data-mem]").forEach(b=>b.onclick=()=>{const i=mem.indexOf(b.dataset.mem); i>=0?mem.splice(i,1):mem.push(b.dataset.mem); b.setAttribute("aria-pressed",i<0);});
     document.getElementById("nOk").onclick=()=>{
@@ -542,16 +543,17 @@ function bindSession(){
 
 /* --- フリー：自分の点数と着順だけで、その半荘の結果を出す。記録はその日のセッションに入る --- */
 const FREE_RULES={
-  4:{mode:4,start:25000,ret:30000,uma:[10,5,-5,-10],tobi:0},
+  4:{mode:4,start:25000,ret:30000,uma:[30,10,-10,-30],tobi:0},
   3:{mode:3,start:35000,ret:40000,uma:[20,0,-20],tobi:10},
 };
 let freeRank=1, freeTobi=false, freeOpen=null, freeFlash="", freeEdit=null;
 function freeState(){ return db.free || (db.free={rule:{...JSON.parse(JSON.stringify(FREE_RULES[4])),rate:50,chipRate:0,fee:0,feeTop:""},games:[]}); }
+const quickHTML=r=>`<thead><tr><th>点数</th>${Array.from({length:r.mode},(_,k)=>`<th>${k+1}着</th>`).join("")}</tr></thead><tbody>${quickTable(r).map(x=>`<tr><td>${x.score.toLocaleString()}</td>${x.cells.map(v=>v===null?'<td class="note">−</td>':`<td class="${cls(v)}">${fmtP(v)}</td>`).join("")}</tr>`).join("")}</tbody>`;
 function freeLine(g){ return freeResult(g.score,g.rank,g.chips,g.rule,g.tobiWin); }
 const ruleCopy=r=>JSON.parse(JSON.stringify({mode:r.mode,start:r.start,ret:r.ret,uma:r.uma,rate:r.rate,chipRate:r.chipRate,fee:r.fee||0,feeTop:r.feeTop??"",tobi:r.tobi||0}));
 const ruleKey=r=>JSON.stringify(ruleCopy(r));
 const ruleLine=r=>`${modeName(r.mode)}・${r.start}持ち${r.ret}返し・ウマ${r.uma.join("/")}${r.tobi?`・トビ賞${r.tobi}`:""}・${rateName(r.rate)}${r.chipRate?`・チップ${r.chipRate}P`:""}${r.fee?`・ゲーム代${r.fee}P`:""}`;
-function setFreeMode(r,m){ Object.assign(r,JSON.parse(JSON.stringify(FREE_RULES[m]))); r.chipRate=m===3?r.rate*5:0; if(freeRank>m) freeRank=1; }
+function setFreeMode(r,m){ Object.assign(r,JSON.parse(JSON.stringify(FREE_RULES[m]))); r.chipRate=chipFor(m,r.rate); if(freeRank>m) freeRank=1; }
 function saveRule(name){
   const r=freeState().rule, x=db.rules.find(v=>v.name===name);
   if(x) x.rule=ruleCopy(r); else db.rules.push({id:uid(),name,rule:ruleCopy(r),place:""});
@@ -585,13 +587,17 @@ function viewFree(){
     <div class="grid2"><label class="f">ゲーム代（P）<input inputmode="decimal" data-frule="fee" value="${r.fee}"></label><label class="f">トップのゲーム代（同じなら空）<input inputmode="decimal" data-frule="feeTop" value="${r.feeTop}"></label></div>
     <span class="warn" id="fRuleErr"></span>
     <div class="row"><input id="rName" placeholder="ルールの名前（例：いつもの三麻）" style="flex:1"><button class="small" id="rSave">このルールを保存</button></div>
-  </div></details></section>`;
+  </div></details></section>
+  <section class="card"><h2>点数の早見表</h2>
+    <p class="note">いまのルールでの結果です。チップは入れず、ゲーム代は引いています。飛ばしたときのトビ賞は入っていません。「−」は起こらない組み合わせです。</p>
+    <div class="tablebox"><table id="fTable">${quickHTML(r)}</table></div></section>`;
 }
 function bindFree(){
   const f=freeState(), r=f.rule;
   const score=document.getElementById("fScore"), chip=document.getElementById("fChip");
   const paint=()=>{
     document.getElementById("fRuleNow").textContent=ruleLine(r);
+    document.getElementById("fTable").innerHTML=quickHTML(r);
     const out=document.getElementById("fOut"), sc=parseScore(score.value);
     if(sc===null){ out.textContent="-"; out.className="free-out"; return; }
     const x=freeResult(sc,freeRank,parseSigned(chip.value)||0,r,freeTobi);
@@ -620,7 +626,9 @@ function bindFree(){
       if(u.length!==r.mode||u.includes(null)){msg.textContent=`ウマは${r.mode}つ入れてください`;return;}
       r.uma=u; }
     else if(k==="feeTop"&&i.value.trim()==="") r.feeTop="";
-    else{ const n=parseSigned(i.value); if(n===null){msg.textContent="数字を入れてください";return;} r[k]=n; }
+    else{ const n=parseSigned(i.value); if(n===null){msg.textContent="数字を入れてください";return;}
+      if(k==="rate"&&r.chipRate===chipFor(r.mode,r.rate)){ r.chipRate=chipFor(r.mode,n); document.querySelector('[data-frule="chipRate"]').value=r.chipRate; }
+      r[k]=n; }
     save(); paint();
   });
   document.getElementById("rSave").onclick=()=>{const n=document.getElementById("rName").value.trim(); if(!n){document.getElementById("fRuleErr").textContent="ルールの名前を入れてください";return;} saveRule(n); render();};
@@ -674,6 +682,8 @@ function viewPlayers(){
   <p class="note">保存したルールは、フリーとセットの画面で選ぶだけで使えます。既定にしたルールは、最初から選ばれた状態で出ます。</p>
   <div class="list">${db.rules.map(x=>`<div class="stack item" style="cursor:default;display:grid"><div><b>${esc(x.name)}</b>${def===x.id?' <span class="tag">既定</span>':""}<br><span class="meta">${ruleLine(x.rule)}</span></div>
     <div class="row"><button class="small" data-ruse="${x.id}">フリーで使う</button><button class="small ghost" data-rdef="${x.id}">${def===x.id?"既定を外す":"既定にする"}</button><button class="small ghost" data-rdel="${x.id}">消す</button></div></div>`).join("")||'<p class="note">まだありません。下の欄で、いまのフリーのルールを保存できます。</p>'}</div>
+  <h3>よくあるルール</h3>
+  <div class="list">${["m4f","m4g","m3f"].map(k=>`<div class="item" style="cursor:default"><span>${RULE_PRESETS[k].label}</span><button class="small" data-puse="${k}">フリーで使う</button></div>`).join("")}</div>
   <p class="note">いまのフリーのルール：${ruleLine(freeState().rule)}</p>
   <div class="row"><input id="rName2" placeholder="ルールの名前（例：いつもの三麻）" style="flex:1"><button class="small primary" id="rSave2">このルールを保存</button></div>
   <span class="warn" id="rErr"></span></section>
@@ -688,6 +698,7 @@ function bindPlayers(){
   document.querySelectorAll("[data-me]").forEach(b=>b.onclick=()=>{db.settings.me=db.settings.me===b.dataset.me?"":b.dataset.me;save();render();});
   document.getElementById("rSave2").onclick=()=>{const n=document.getElementById("rName2").value.trim(); if(!n){document.getElementById("rErr").textContent="ルールの名前を入れてください";return;} saveRule(n); render();};
   document.querySelectorAll("[data-ruse]").forEach(b=>b.onclick=()=>{Object.assign(freeState().rule,ruleCopy(db.rules.find(x=>x.id===b.dataset.ruse).rule));save();tab="free";render();window.scrollTo(0,0);});
+  document.querySelectorAll("[data-puse]").forEach(b=>b.onclick=()=>{const r=freeState().rule; Object.assign(r,ruleCopy({...RULE_PRESETS[b.dataset.puse],rate:r.rate,chipRate:chipFor(RULE_PRESETS[b.dataset.puse].mode,r.rate),fee:r.fee,feeTop:r.feeTop}));save();tab="free";render();window.scrollTo(0,0);});
   document.querySelectorAll("[data-rdef]").forEach(b=>b.onclick=()=>{const id=b.dataset.rdef, on=db.settings.defaultRule===id; db.settings.defaultRule=on?"":id;
     if(!on) Object.assign(freeState().rule,ruleCopy(db.rules.find(x=>x.id===id).rule)); save();render();});
   document.querySelectorAll("[data-rdel]").forEach(b=>b.onclick=()=>undoable("ルールを消しました",()=>{db.rules=db.rules.filter(x=>x.id!==b.dataset.rdel);}));
@@ -744,24 +755,52 @@ function viewUnlock(){
     <div class="row"><input id="codeIn" placeholder="HN-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1"><button class="primary" id="codeOk">開く</button></div>
     <span class="warn" id="codeMsg"></span></section>`;
 }
+let restoreMsg="";
+function viewRestore(){
+  return `<section class="card"><h2>バックアップから戻す</h2>
+    ${restoreMsg?`<p class="note" role="status"><b>${esc(restoreMsg)}</b></p>`:""}
+    <ol class="note howto"><li>下の欄で、保存した hanchan-note-日付.json を選ぶ（iPhone は「ブラウズ」から）</li><li>いまの記録とファイルの中身が並ぶので見比べる</li><li>「置き換える」を押す。読み直して、同じ内容か確かめて知らせます</li></ol>
+    <label class="f">バックアップのファイルを選ぶ<input type="file" id="rsFile" accept=".json,application/json"></label>
+    <details><summary>コピーした文字から戻す</summary><div class="stack" style="margin-top:8px"><textarea id="rs" placeholder="コピーしておいた文字を貼る"></textarea><button class="small" id="rsOk">読み取る</button></div></details>
+    ${snaps.length?`<details><summary>端末の中の自動の控えから戻す（${snaps.length}個）</summary><div class="stack" style="margin-top:8px"><p class="note">間違えて消したときに戻せます。端末が壊れたり機種変更したりすると一緒に無くなります。</p>
+      <div class="list">${snaps.map((x,i)=>`<div class="item" style="cursor:default"><span class="num">${fmtAt(x.at)}</span><button class="small ghost" data-snap="${i}">これに戻す</button></div>`).join("")}</div></div></details>`:""}
+    <span class="warn" id="rsMsg"></span>
+    <div class="stack" id="rsConfirm" hidden><div class="tablebox"><table id="rsTable"></table></div><p class="note" id="rsInfo"></p><button class="primary wide" id="rsYes">置き換える</button></div>
+  </section>`;
+}
+const SUMMARY_ROWS=[["sets","セットの回数"],["setGames","セットの半荘"],["freeGames","フリーの半荘"],["players","メンバー"],["rules","保存したルール"],["last","最後の記録"],["code","照合の番号"]];
+function bindRestore(){
+  let pending=null;
+  const read=text=>{ const msg=document.getElementById("rsMsg"), box=document.getElementById("rsConfirm"); msg.textContent=""; box.hidden=true;
+    try{ const d=JSON.parse(text); if(!isBackup(d)) throw 0; pending=d;
+      const a=backupSummary(db), b=backupSummary(d);
+      document.getElementById("rsTable").innerHTML=`<thead><tr><th></th><th>いま</th><th>ファイル</th></tr></thead><tbody>${SUMMARY_ROWS.map(([k,l])=>`<tr><td>${l}</td><td>${esc(a[k])}</td><td>${esc(b[k])}</td></tr>`).join("")}</tbody>`;
+      document.getElementById("rsInfo").textContent="「置き換える」を押すと、いまの記録がファイルの中身に変わります。いまの記録は自動の控えに残します。";
+      box.hidden=false; box.scrollIntoView({block:"center"}); }
+    catch(e){ msg.textContent="読み取れませんでした。バックアップのファイルか、コピーした文字を全部入れてください"; } };
+  document.querySelectorAll("[data-snap]").forEach(b=>b.onclick=()=>read(snaps[Number(b.dataset.snap)].text));
+  document.getElementById("rsOk").onclick=()=>read(document.getElementById("rs").value);
+  document.getElementById("rsFile").onchange=async e=>{ const f=e.target.files[0]; if(f) read(await f.text()); };
+  document.getElementById("rsYes").onclick=async()=>{ if(!pending) return;
+    const want=backupSummary(pending).code;
+    takeSnap(true);
+    db={...pending,saved:pending.saved||[],rules:pending.rules||[],sample:false,settings:{...pending.settings,unlocked:unlocked()||!!(pending.settings&&pending.settings.unlocked),noticeDone:true}};
+    openSession=null; undo=null; save(); await saveQueue;
+    let back=null; try{ back=idb?await idbDo("readonly",s=>s.get("db")):JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+    restoreMsg=back&&backupSummary(back).code===want?"戻しました。端末に書いた記録を読み直して、ファイルと同じ内容だと確かめました。":"戻しましたが、確かめの読み直しで違いが出ました。もう一度戻してください。";
+    render(); window.scrollTo(0,0); };
+}
 function viewSettings(){
   const on=unlocked();
   const savedList=db.saved.map((sv,i)=>`<div class="item" style="cursor:default"><span>${esc(sv.name)}</span><button class="small ghost" data-sdel="${i}" aria-label="${esc(sv.name)}を消す">消す</button></div>`).join("");
-  return `${viewUnlock()}
+  return `${viewRestore()}
+  ${viewUnlock()}
   <section class="card"><h2>バックアップ${on?"":'<span class="lock">拡張</span>'}</h2>
     <p class="note">記録はこの端末の中だけにあります。ファイルに保存しておけば、機種変更でも戻せます。</p>
     ${on?`<p class="note">前回の保存：${db.settings.backupAt?fmtAt(db.settings.backupAt):"まだありません"}（保存していない記録 ${unsavedGames(db)}半荘）。iPhone は「ファイルに保存」を押して、出てきた画面で「"ファイル"に保存」を選びます。</p>`:""}
     ${on?`<div class="row"><button class="small primary" id="bkFile">ファイルに保存</button><span class="note" id="bkMsg"></span></div>
     <details><summary>ファイルに保存できないとき（文字でコピー）</summary><div class="stack" style="margin-top:8px"><textarea id="bk" readonly>${esc(JSON.stringify(db))}</textarea><div class="row"><button class="small" id="bkCopy">コピー</button></div></div></details>
-    <details><summary>バックアップから戻す</summary><div class="stack" style="margin-top:8px">
-      ${snaps.length?`<h3>自動の控え（この端末の中）</h3><p class="note">間違えて消したときに戻せます。端末が壊れたり機種変更したりすると一緒に無くなります。</p>
-      <div class="list">${snaps.map((x,i)=>`<div class="item" style="cursor:default"><span class="num">${fmtAt(x.at)}</span><button class="small ghost" data-snap="${i}">これに戻す</button></div>`).join("")}</div>
-      <h3>ファイルから</h3>`:""}
-      <label class="f">バックアップのファイルを選ぶ<input type="file" id="rsFile" accept=".json,application/json"></label>
-      <textarea id="rs" placeholder="または、コピーしておいた文字を貼る"></textarea>
-      <div class="row"><button class="small" id="rsOk">読み取る</button><span class="warn" id="rsMsg"></span></div>
-      <div class="row" id="rsConfirm" hidden><span class="note" id="rsInfo"></span><button class="small primary" id="rsYes">置き換える</button></div>
-    </div></details>`:lockedNote("バックアップ")}
+`:lockedNote("バックアップ")}
   </section>
   ${on&&db.saved.length?`<section class="card"><h2>保存した条件</h2><div class="list">${savedList}</div></section>`:""}
   <section class="card"><h2>CSV・Excel 書き出し${on?"":'<span class="lock">拡張</span>'}</h2>
@@ -784,29 +823,18 @@ function bindBackup(){
   document.getElementById("csvFile2").onclick=async()=>csvDone(await saveFile(`hanchan-note-settle-${stamp()}.csv`,csvBlob(settleRows())));
   document.getElementById("xlsxFile").onclick=async()=>{ const m=document.getElementById("csvMsg"); try{ csvDone(await saveFile(`hanchan-note-${stamp()}.xlsx`,await xlsxBlob())); }catch(e){ m.textContent="Excel の準備に失敗しました。電波のある所でもう一度試すか、CSV を使ってください"; } };
   copyBtn("bkCopy","bk","bkMsg"); copyBtn("csvCopy","csv","csvMsg");
-  let pending=null;
-  const read=text=>{ const msg=document.getElementById("rsMsg"), box=document.getElementById("rsConfirm"); msg.textContent=""; box.hidden=true;
-    try{ const d=JSON.parse(text); if(!isBackup(d)) throw 0; pending=d;
-      document.getElementById("rsInfo").textContent=`${d.sessions.length}件のセッションが入っています。いまの記録と置き換えます。`; box.hidden=false; }
-    catch(e){ msg.textContent="読み取れませんでした。バックアップのファイルか、コピーした文字を全部入れてください"; } };
-  document.querySelectorAll("[data-snap]").forEach(b=>b.onclick=()=>read(snaps[Number(b.dataset.snap)].text));
-  document.getElementById("rsOk").onclick=()=>read(document.getElementById("rs").value);
-  document.getElementById("rsFile").onchange=async e=>{ const f=e.target.files[0]; if(f) read(await f.text()); };
-  document.getElementById("rsYes").onclick=()=>{ if(!pending) return;
-    takeSnap(true);
-    db={...pending,saved:pending.saved||[],sample:false,settings:{...pending.settings,unlocked:true,noticeDone:true}}; save(); render(); };
   document.querySelectorAll("[data-sdel]").forEach(b=>b.onclick=()=>{db.saved.splice(Number(b.dataset.sdel),1);save();render();});
 }
 function copyBtn(btn,area,msg){document.getElementById(btn).onclick=async()=>{const t=document.getElementById(area);try{await navigator.clipboard.writeText(t.value);document.getElementById(msg).textContent="コピーしました";}catch(e){t.select();document.getElementById(msg).textContent="選択しました。長押しでコピーしてください";}};}
 function bindSettings(){
-  bindUnlock(); bindBackup();
+  bindRestore(); bindUnlock(); bindBackup(); restoreMsg="";
 }
 
 // 前の版の記録に足りない項目を補う。三麻の初期設定が前の既定のままなら新しい既定にする（過去の半荘はルールの写しを持つので動かない）
 function upgrade(){
   db.rules=db.rules||[];
   const r=db.free&&db.free.rule;
-  if(r&&r.mode===3&&r.uma.every(u=>!u)&&!r.tobi){ r.uma=[20,0,-20]; r.tobi=10; r.chipRate=r.chipRate||r.rate*5; }
+  if(r&&r.mode===3&&r.uma.every(u=>!u)&&!r.tobi){ r.uma=[20,0,-20]; r.tobi=10; r.chipRate=r.chipRate||chipFor(3,r.rate); }
 }
 
 (async()=>{
