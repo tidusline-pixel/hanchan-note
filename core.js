@@ -1,8 +1,8 @@
 /* ===== 計算のしくみ（画面と切り離してテストできるようにしてある） ===== */
 const RULE_PRESETS = {
-  m4f:{label:"四麻A（25000持ち30000返し・ウマ10-30）", note:"着順の差が大きいルール。1着を取ると大きく増える", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
-  m4g:{label:"四麻B（25000持ち30000返し・ウマ5-10）", note:"着順の差が小さいルール。素の点数の差が効きやすい", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0},
-  m3f:{label:"三麻C（35000持ち40000返し・ウマ20・トビ賞10）", note:"三人打ち。2着は増減なしで、1着と3着に大きく差がつく", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:200, fee:0, tie:"seat", tobi:10},
+  m4f:{label:"四麻A（25000持ち30000返し・ウマ10-30）", note:"着順の差が大きいルール。1着を取ると大きく増える", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0, round:"56"},
+  m4g:{label:"四麻B（25000持ち30000返し・ウマ5-10）", note:"着順の差が小さいルール。素の点数の差が効きやすい", mode:4, start:25000, ret:30000, uma:[10,5,-5,-10], rate:50, chipRate:100, fee:0, tie:"seat", tobi:0, round:"56"},
+  m3f:{label:"三麻A（35000持ち40000返し・ウマ20・トビ賞10）", note:"三人打ち。2着は増減なしで、1着と3着に大きく差がつく", mode:3, start:35000, ret:40000, uma:[20,0,-20], rate:50, chipRate:200, fee:0, tie:"seat", tobi:10},
   m4: {label:"四麻（25000持ち30000返し・ウマ10-30）", mode:4, start:25000, ret:30000, uma:[30,10,-10,-30], rate:50, chipRate:0, fee:0},
   m4b:{label:"四麻（25000持ち25000返し・ウマ5-10）", mode:4, start:25000, ret:25000, uma:[10,5,-5,-10], rate:50, chipRate:0, fee:0},
   m3: {label:"三麻（35000持ち40000返し・ウマなし）", mode:3, start:35000, ret:40000, uma:[0,0,0], rate:50, chipRate:100, fee:0},
@@ -13,6 +13,16 @@ const round1 = x => Math.round(x*10)/10;
 function chipFor(mode,rate){ const r=Number(rate); return r===100?500:Math.round(r*(mode===3?4:2)); }
 
 // 1半荘の結果：scores = {pid: 点数}。席順 order は同点のとき上家を上にするか、ウマを分けるかに使う
+// 端数の扱い。"56" は五捨六入（32500→32000、32600→33000）、"45" は四捨五入、空はそのまま。箱下は絶対値で丸める
+function roundScore(s,how){
+  if(how!=="56"&&how!=="45") return s;
+  return Math.sign(s)*Math.floor((Math.abs(s)+(how==="56"?400:500))/1000)*1000;
+}
+// 同じ点数の人の組。記録のときに上の人を選んでもらう
+function tieGroups(scores){
+  const by={}; Object.entries(scores).forEach(([id,v])=>(by[v]=by[v]||[]).push(id));
+  return Object.values(by).filter(x=>x.length>1);
+}
 function scoreGame(scores, rule, order){
   const ids = Object.keys(scores);
   const n = ids.length;
@@ -34,10 +44,12 @@ function scoreGame(scores, rule, order){
         let u=0,o=0; for(let m=i;m<=j;m++){u+=rule.uma[m]||0; if(m===0)o+=oka;}
         umaPart=u/(j-i+1); okaPart=o/(j-i+1); rank=(i+j)/2+1; best=i+1; worst=j+1;
       }else{ umaPart=rule.uma[k]||0; okaPart=k===0?oka:0; rank=k+1; best=worst=k+1; }
-      res[id]={rank, best, worst, point: round1(direct ? scores[id]/1000 : (scores[id]-rule.ret)/1000 + umaPart + okaPart)};
+      res[id]={rank, best, worst, point: round1(direct ? scores[id]/1000 : (roundScore(scores[id],rule.round)-rule.ret)/1000 + umaPart + okaPart)};
     }
     i=j+1;
   }
+  // 丸めると合計が0からずれるので、1着が残りを受ける
+  if(!direct&&rule.round&&total===expected) res[sorted[0]].point=round1(-sorted.slice(1).reduce((a,id)=>a+res[id].point,0));
   return {res, total, expected, ok: total===expected};
 }
 
@@ -72,17 +84,19 @@ function parseSigned(v){
   return (m[1]||m[3]) && n!==0 ? -n : n;
 }
 // 点数を読む。200以下は千点単位（30→30000、32.5→32500、5-→-5000）、それより大きければそのまま
-function parseScore(v){
+// 点数の入力単位。四麻は100点棒があるので 300 で 30000点、三麻は 30 で 30000点。ポイントで入れる形は数のまま
+const scoreUnit=r=>r&&r.mode===4&&!r.direct?100:1000;
+function parseScore(v,unit=1000){
   const n=parseSigned(v);
   if(n===null) return null;
-  return Math.round(Math.abs(n)<=200 ? n*1000 : n);
+  return Math.round(Math.abs(n)<=(unit===100?999:200) ? n*unit : n);
 }
 
 // フリーの1半荘：自分の点数と着順だけで出す。ゲーム代は負け分と同じく引く。feeTop はトップだけ違う店のため
 // r.tobi はトビ賞。0点以下で払い、tobiWin（人を飛ばした）でもらう
 function freeResult(score, rank, chips, r, tobiWin){
   const oka=(r.ret-r.start)*r.mode/1000, tobi=Number(r.tobi||0);
-  const point=round1((score-r.ret)/1000 + (r.uma[rank-1]||0) + (rank===1?oka:0) - (score<=0?tobi:0) + (tobiWin?tobi:0));
+  const point=round1((roundScore(score,r.round)-r.ret)/1000 + (r.uma[rank-1]||0) + (rank===1?oka:0) - (score<=0?tobi:0) + (tobiWin?tobi:0));
   const fee=Number(rank===1 && r.feeTop!==undefined && r.feeTop!=="" ? r.feeTop : r.fee||0);
   const gain=point*r.rate + Number(chips||0)*r.chipRate;
   return {point, fee, total:Math.round(Math.round(gain*1e6)/1e6 - fee)};
@@ -114,11 +128,12 @@ function ruleNote(r){
 // 点数の早見表：ルールごとに、点数と着順で結果（チップなし・トビ賞のやり取りは0点以下で払う分だけ・ゲーム代込み）を出す
 // 起こらない組み合わせは null。k着の点数は合計÷k を超えず、1着は持ち点を下回らない
 const QUICK_SCORES=[60,50,45,40,35,30,25,20,15,10,5,1,0,-5,-10];
+// 起こらない着順と点数の組み合わせ。2着の点数の2倍が全員の合計を超える、1着が持ち点より下、など
+const impossibleScore=(score,rank,r)=>score*rank>r.start*r.mode || (rank===1&&score<r.start);
 function quickTable(r){
-  const all=r.start*r.mode;
   return QUICK_SCORES.map(k=>{ const score=k*1000;
     return {score, cells:Array.from({length:r.mode},(_,i)=>{ const rank=i+1;
-      if(score*rank>all || (rank===1&&score<r.start)) return null;
+      if(impossibleScore(score,rank,r)) return null;
       return freeResult(score,rank,0,r).total; })}; });
 }
 
@@ -131,7 +146,7 @@ function backupSummary(d){
 
 // 無料で登録できるメンバーの数。見本の人は数えない。上限を超えたデータ（バックアップから戻した分など）も使えて、止めるのは追加だけ
 const FREE_PLAYERS=5;
-function canAddPlayer(d){ return !!(d.settings&&d.settings.unlocked) || (d.players||[]).filter(p=>!p.sample&&!p.guest).length<FREE_PLAYERS; }
+function canAddPlayer(d){ return isUnlocked(d.settings) || (d.players||[]).filter(p=>!p.sample&&!p.guest).length<FREE_PLAYERS; }
 // 1回だけの人。使ったときだけ登録し、上限には数えない。同じゲストは別の日でも同じ1人になる
 const GUESTS=["guest1","guest2","guest3"];
 function ensureGuest(d,id){ if(GUESTS.includes(id)&&!d.players.some(p=>p.id===id)) d.players.push({id,name:"ゲスト"+id.slice(5),color:"#8a8f8a",guest:true}); }
@@ -174,15 +189,31 @@ function shiftMonth(ym,n){ const [y,mo]=ym.split("-").map(Number), d=new Date(Da
 
 // セッションの集計：ポイント合計・チップ・その他の項目・ゲーム代
 // net＝人の間でやり取りする額（ゲーム代を含まない）、yen＝収支（net−ゲーム代）
+// 場代の分け方。equal は割り勘、win は勝ち額に応じて、top は収支が一番の人が全部払う
+// win は勝った人の順番が変わらない。場代が勝ち額の合計より多いときは、足りない分を割り勘にする
+function venueShares(nets,amount,how){
+  const ids=Object.keys(nets), n=ids.length, a=Number(amount||0);
+  if(!n||!a) return Object.fromEntries(ids.map(id=>[id,0]));
+  const W=ids.reduce((x,id)=>x+Math.max(nets[id],0),0);
+  if(how==="top"){ const top=ids.reduce((b,id)=>nets[id]>nets[b]?id:b,ids[0]); return Object.fromEntries(ids.map(id=>[id,id===top?a:0])); }
+  if(how==="win"&&W>0) return roundKeepTotal(Object.fromEntries(ids.map(id=>{const w=Math.max(nets[id],0); return [id,a<=W?w*a/W:w+(a-W)/n];})));
+  return roundKeepTotal(Object.fromEntries(ids.map(id=>[id,a/n])));
+}
+// 場代を引いたあとに、収支の順番が入れ替わるか
+function venueFlips(t){
+  const ids=Object.keys(t);
+  return ids.some(a=>ids.some(b=>t[a].net>t[b].net&&t[a].yen<t[b].yen));
+}
 function sessionTotals(s){
   const t = {};
   s.members.forEach(id=>t[id]={point:0, games:0, ranks:[], spans:[], chips:Number((s.chips||{})[id]||0), extra:extraOf(s,id), fee:Number(s.rule.fee||0), net:0, yen:0});
   (s.games||[]).forEach(g=>{
-    const r = scoreGame(g.scores, s.rule, s.members);
+    const r = scoreGame(g.scores, s.rule, g.order||s.members);
     Object.entries(r.res).forEach(([id,v])=>{ if(!t[id])return; t[id].point=round1(t[id].point+v.point); t[id].games++; t[id].ranks.push(v.rank); t[id].spans.push({best:v.best,worst:v.worst,n:s.rule.mode}); });
   });
   const net = roundKeepTotal(Object.fromEntries(Object.entries(t).map(([id,v])=>[id, v.point*s.rule.rate + v.chips*s.rule.chipRate + v.extra])));
-  Object.entries(t).forEach(([id,v])=>{ v.net=net[id]; v.yen=v.net-v.fee; });
+  const venue=s.venue||{}, vs=venueShares(net,venue.amount,venue.how);
+  Object.entries(t).forEach(([id,v])=>{ v.net=net[id]; v.fee+=vs[id]; v.yen=v.net-v.fee; });
   return t;
 }
 
@@ -238,14 +269,23 @@ function playerStats(sessions, n){
 
 function toCSV(rows){ return rows.map(r=>r.map(c=>{const s=String(c??""); return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(",")).join("\r\n"); }
 
-/* ===== 解放コード：HN-XXXX-XXXX-CCCC。後ろの4文字が前の8文字から決まる。
-   サーバーが無いので漏れる前提の軽い仕組み（作り方は tools/make_codes.js） ===== */
-const CODE_SALT="hanchan-note-v1";
+/* ===== 解放コード：HN2＋中身7バイトと署名64バイト。秘密鍵は手元の tools/ にだけあり、ここには確かめる鍵しかない
+   中身は 版1・期限2（2026-01-01 からの日数、0 は期限なし）・番号4。作り方は tools/make_codes.js ===== */
+const CODE_PUB="BDNb6MxF1tA4n_4-hTgDnN9Kc53jmGOvr4i11bdMsnvCaf9Y9rpzhRy3LRYV4B7-v8Qrjn5wSx7JMHUa35vFFd4", CODE_EPOCH=Date.UTC(2026,0,1);
+const b64u=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+async function verifyCode(code,pub=CODE_PUB,now=Date.now()){
+  const m=/^HN2([A-Za-z0-9_-]{95})$/.exec(String(code||"").replace(/\s/g,""));
+  if(!m) return {ok:false};
+  try{
+    const b=b64u(m[1]), body=b.slice(0,7), key=await crypto.subtle.importKey("raw",b64u(pub),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
+    if(body[0]!==2 || !await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"},key,b.slice(7),body)) return {ok:false};
+    const days=body[1]*256+body[2], until=days?CODE_EPOCH+days*864e5:0;
+    return until&&now>=until?{ok:false,expired:true,until}:{ok:true,until};
+  }catch(e){ return {ok:false}; }
+}
+// 解放の状態。期限つきのコードは期限が過ぎると閉じる。記録はそのまま残る
+const isUnlocked=(s,now=Date.now())=>!!(s&&s.unlocked)&&(!s.unlockUntil||now<s.unlockUntil);
 function fnv1a(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193)>>>0; } return h; }
-function codeCheck(body){ return fnv1a(CODE_SALT+body).toString(36).toUpperCase().padStart(4,"0").slice(-4); }
-function normalizeCode(c){ return String(c||"").toUpperCase().replace(/[^0-9A-Z]/g,""); }
-function isValidCode(c){ const n=normalizeCode(c); return /^HN[0-9A-Z]{12}$/.test(n) && codeCheck(n.slice(2,10))===n.slice(10); }
-function makeCode(body){ const b=normalizeCode(body); return `HN-${b.slice(0,4)}-${b.slice(4,8)}-${codeCheck(b)}`; }
 
 // バックアップの形を確かめる。読み込みで今の記録を壊さないように
 function isBackup(d){ return !!d && Array.isArray(d.players) && Array.isArray(d.sessions) && d.sessions.every(s=>s && Array.isArray(s.members) && s.rule && Array.isArray(s.games)); }
@@ -270,4 +310,4 @@ function backupDue(d){
   return gameCount(d)-Math.max(Number(d.settings.backupGames||0),Number(d.settings.nudgeSkip||0)) >= every;
 }
 
-if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,isValidCode,makeCode,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
+if(typeof module!=="undefined") module.exports={parseSigned,parseScore,freeResult,scoreGame,roundKeepTotal,extraGap,chipGap,sessionTotals,settle,filterSessions,playerStats,toCSV,RULE_PRESETS,verifyCode,isUnlocked,CODE_EPOCH,isBackup,gameCount,nextSnaps,unsavedGames,backupDue,ruleNote,tieGroups,venueShares,venueFlips,impossibleScore,scoreUnit,roundScore,playersByRecent,FREE_PLAYERS,canAddPlayer,GUESTS,ensureGuest,freeSummary,freeDays,filterFree,chipFor,quickTable,backupSummary,logEntries,logTotals,dayMap,monthGrid,shiftMonth};
